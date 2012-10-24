@@ -41,6 +41,8 @@ struct smbd_smb2_lock_state {
 	struct blocking_lock_record *blr;
 	uint16_t lock_count;
 	struct smbd_lock_element *locks;
+	uint8_t lock_sequence_value;
+	uint8_t *lock_sequence_element;
 };
 
 static void remove_pending_lock(struct smbd_smb2_lock_state *state,
@@ -213,6 +215,8 @@ static struct tevent_req *smbd_smb2_lock_send(TALLOC_CTX *mem_ctx,
 	struct smbd_lock_element *locks;
 	NTSTATUS status;
 	bool async = false;
+	bool check_lock_sequence = false;
+	uint32_t lock_sequence_bucket = 0;
 
 	req = tevent_req_create(mem_ctx, &state,
 			struct smbd_smb2_lock_state);
@@ -230,6 +234,39 @@ static struct tevent_req *smbd_smb2_lock_send(TALLOC_CTX *mem_ctx,
 
 	DEBUG(10,("smbd_smb2_lock_send: %s - %s\n",
 		  fsp_str_dbg(fsp), fsp_fnum_dbg(fsp)));
+
+	/*
+	 * TODO: Windows sets check_lock_sequence = true
+	 * only for resilient and persistent handles
+	 *
+	 * What about other handles using multi-channel?
+	 */
+	if (check_lock_sequence) {
+		state->lock_sequence_value = in_lock_sequence & 0xF;
+		lock_sequence_bucket = in_lock_sequence >> 4;
+	}
+	if ((lock_sequence_bucket > 0) &&
+	    (lock_sequence_bucket <= sizeof(fsp->op->global->lock_sequence_array)))
+	{
+		uint32_t idx = lock_sequence_bucket - 1;
+		uint8_t *array = fsp->op->global->lock_sequence_array;
+
+		state->lock_sequence_element = &array[idx];
+	}
+
+	if (state->lock_sequence_element != NULL) {
+		if (*state->lock_sequence_element == state->lock_sequence_value)
+		{
+			DBG_INFO("replayed smb2 lock request detected: "
+				 "file %s, value %u, bucket %u\n",
+				 fsp_str_dbg(fsp),
+				 (unsigned)state->lock_sequence_value,
+				 (unsigned)lock_sequence_bucket);
+			tevent_req_done(req);
+			return tevent_req_post(req, ev);
+		}
+		*state->lock_sequence_element = 0xFF;
+	}
 
 	locks = talloc_array(state, struct smbd_lock_element, in_lock_count);
 	if (locks == NULL) {
@@ -380,6 +417,10 @@ static struct tevent_req *smbd_smb2_lock_send(TALLOC_CTX *mem_ctx,
 		tevent_req_defer_callback(req, smb2req->sconn->ev_ctx);
 		SMBPROFILE_IOBYTES_ASYNC_SET_IDLE(smb2req->profile);
 		return req;
+	}
+
+	if (state->lock_sequence_element != NULL) {
+		*state->lock_sequence_element = state->lock_sequence_value;
 	}
 
 	tevent_req_done(req);
@@ -772,6 +813,10 @@ static void reprocess_blocked_smb2_lock(struct smbd_smb2_request *smb2req,
 			fsp_str_dbg(fsp),
 			fsp_fnum_dbg(fsp),
 			(int)state->lock_count));
+
+		if (state->lock_sequence_element != NULL) {
+			*state->lock_sequence_element = state->lock_sequence_value;
+		}
 
 		remove_pending_lock(state, blr);
 		tevent_req_done(smb2req->subreq);
