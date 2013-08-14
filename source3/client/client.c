@@ -246,6 +246,10 @@ static int readfile(uint8_t *b, int n, FILE *f)
 struct push_state {
 	FILE *f;
 	off_t nread;
+	off_t total_size;
+	bool progress;
+	struct timeval start;
+	struct timeval last;
 };
 
 static size_t push_source(uint8_t *buf, size_t n, void *priv)
@@ -259,6 +263,54 @@ static size_t push_source(uint8_t *buf, size_t n, void *priv)
 
 	result = readfile(buf, n, state->f);
 	state->nread += result;
+
+	if (state->progress) {
+		struct timeval now = timeval_current();
+		double elapsed_start = timeval_elapsed2(&state->start, &now);
+		double elapsed_last = timeval_elapsed2(&state->last, &now);
+		const char *ps_unit = "";
+		double r = state->nread;
+		const char *r_unit = "";
+		double t = state->total_size;
+		const char *t_unit = "";
+		double pc = MIN((r / t) * 100, 99.9);
+		double ps = r / elapsed_start;
+
+		if (elapsed_last >= 0 && elapsed_last < 0.1) {
+			return result;
+		}
+
+#define per_unit(_val, _unit) { \
+		if (_val > (1024 * 1024 * 1024)) { \
+			_val /= (1024 * 1024 * 1024); \
+			_unit = "G"; \
+		} else if (_val > (1024 * 1024)) { \
+			_val /= (1024 * 1024); \
+			_unit = "M"; \
+		} else if (_val > (1024)) { \
+			_val /= (1024); \
+			_unit = "K"; \
+		} else { \
+			_unit = ""; \
+		} \
+} while (0)
+		per_unit(ps, ps_unit);
+		per_unit(r, r_unit);
+		per_unit(t, t_unit);
+#undef per_unit
+
+		if (t > 0) {
+			d_printf("(%-2.1f %%) (%0.3f %sBytes / %0.3f %sBytes) %0.3f %sBytes/s%-25s\r",
+				pc, r, r_unit, t, t_unit, ps, ps_unit, "");
+		} else {
+			d_printf("(%0.3f %sBytes) %0.3f %sBytes/s%-25s\r",
+				r, r_unit, ps, ps_unit, "");
+		}
+		fflush(stdout);
+		fflush(stderr);
+		state->last = now;
+	}
+
 	return result;
 }
 
@@ -1094,15 +1146,70 @@ static int cmd_echo(void)
  Get a file from rname to lname
 ****************************************************************************/
 
+struct writefile_sink_state {
+	int fd;
+	off_t written;
+	off_t total_size;
+	bool progress;
+	struct timeval start;
+	struct timeval last;
+};
+
 static NTSTATUS writefile_sink(char *buf, size_t n, void *priv)
 {
 	int *pfd = (int *)priv;
 	ssize_t rc;
+	struct writefile_sink_state *state =
+		(struct writefile_sink_state *)priv;
 
-	rc = writefile(*pfd, buf, n);
+	rc = writefile(state->fd, buf, n);
 	if (rc == -1) {
 		return map_nt_error_from_unix(errno);
 	}
+
+	state->written += n;
+	if (state->progress) {
+		struct timeval now = timeval_current();
+		double elapsed_start = timeval_elapsed2(&state->start, &now);
+		double elapsed_last = timeval_elapsed2(&state->last, &now);
+		const char *ps_unit = "";
+		double w = state->written;
+		const char *w_unit = "";
+		double t = state->total_size;
+		const char *t_unit = "";
+		double pc = MIN((w / t) * 100, 99.9);
+		double ps = w / elapsed_start;
+
+		if (elapsed_last >= 0 && elapsed_last < 0.1) {
+			return NT_STATUS_OK;
+		}
+
+#define per_unit(_val, _unit) { \
+		if (_val > (1024 * 1024 * 1024)) { \
+			_val /= (1024 * 1024 * 1024); \
+			_unit = "G"; \
+		} else if (_val > (1024 * 1024)) { \
+			_val /= (1024 * 1024); \
+			_unit = "M"; \
+		} else if (_val > (1024)) { \
+			_val /= (1024); \
+			_unit = "K"; \
+		} else { \
+			_unit = ""; \
+		} \
+} while (0)
+		per_unit(ps, ps_unit);
+		per_unit(w, w_unit);
+		per_unit(t, t_unit);
+#undef per_unit
+
+		d_printf("(%-2.1f %%) (%0.3f %sBytes / %0.3f %sBytes) %0.3f %sBytes/s%-25s\r",
+			pc, w, w_unit, t, t_unit, ps, ps_unit, "");
+		fflush(stdout);
+		fflush(stderr);
+		state->last = now;
+	}
+
 	return NT_STATUS_OK;
 }
 
@@ -1122,6 +1229,7 @@ static int do_get(const char *rname, const char *lname_in, bool reget)
 	char *targetname = NULL;
 	char *lname = NULL;
 	NTSTATUS status;
+	struct writefile_sink_state sink_state = { .fd = -1, };
 
 	lname = talloc_strdup(ctx, lname_in);
 	if (!lname) {
@@ -1192,8 +1300,13 @@ static int do_get(const char *rname, const char *lname_in, bool reget)
 	DEBUG(1,("getting file %s of size %.0f as %s ",
 		 rname, (double)size, lname));
 
+	sink_state.fd = handle;
+	sink_state.total_size = size;
+	sink_state.progress = true;
+	sink_state.start = timeval_current();
+
 	status = cli_pull(targetcli, fnum, start, size, io_bufsize,
-			  writefile_sink, (void *)&handle, &nread);
+			  writefile_sink, (void *)&sink_state, &nread);
 	if (!NT_STATUS_IS_OK(status)) {
 		d_fprintf(stderr, "parallel_read returned %s\n",
 			  nt_errstr(status));
@@ -1964,11 +2077,12 @@ static int do_put(const char *rname, const char *lname, bool reput)
 	uint16_t fnum;
 	FILE *f;
 	off_t start = 0;
+	off_t size = 0;
 	int rc = 0;
 	struct timespec tp_start;
 	struct cli_state *targetcli;
 	char *targetname = NULL;
-	struct push_state state;
+	struct push_state state = { .f = NULL, };
 	NTSTATUS status;
 
 	status = cli_resolve_path(ctx, "", popt_get_cmdline_auth_info(),
@@ -2022,6 +2136,17 @@ static int do_put(const char *rname, const char *lname, bool reput)
 				return 1;
 			}
 		}
+		if (f != NULL) {
+			struct stat st;
+			int fd;
+			int ret;
+
+			fd = fileno(f);
+			ret = fstat(fd, &st);
+			if (ret == 0) {
+				size = st.st_size;
+			}
+		}
 	}
 
 	if (!f) {
@@ -2036,6 +2161,9 @@ static int do_put(const char *rname, const char *lname, bool reput)
 
 	state.f = f;
 	state.nread = 0;
+	state.total_size = size;
+	state.progress = true;
+	state.start = timeval_current();
 
 	status = cli_push(targetcli, fnum, 0, 0, io_bufsize, push_source,
 			  &state);
