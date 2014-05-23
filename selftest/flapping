@@ -27,6 +27,7 @@
 ^samba3.raw.samba3closeerr.samba3closeerr\(ad_dc\) # Seems to flap - succeeds on sn-devel, fails on Fedora 16
 ^samba4.smb2.create.mkdir-dup\(ad_dc_ntvfs\) # This test (for bug 11486) involves a race, not always protected against in the NTVFS file server
 ^samba4.winbind.struct.domain_info.ad_member # flakey on sn-devel-104 and sn-devel-144
+^samba3.raw.oplock.batch1.* # fails sometimes on sn-devel-104
 #
 # This test just is not reliable in finding the max search limit
 #
