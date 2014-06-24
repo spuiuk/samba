@@ -982,10 +982,14 @@ int get_remote_hostname(const struct tsocket_address *remote_address,
 	int rc;
 
 	if (!lp_hostname_lookups()) {
-		nc.name = tsocket_address_inet_addr_string(remote_address,
-							   mem_ctx);
-		if (nc.name == NULL) {
-			return -1;
+		nc.name = "UNKNOWN";
+
+		if (tsocket_address_is_inet(remote_address, "ip")) {
+			nc.name = tsocket_address_inet_addr_string(remote_address,
+								   mem_ctx);
+			if (nc.name == NULL) {
+				return -1;
+			}
 		}
 
 		len = tsocket_address_bsd_sockaddr(remote_address,
@@ -1036,17 +1040,19 @@ int get_remote_hostname(const struct tsocket_address *remote_address,
 			     0,
 			     0);
 	if (rc < 0) {
-		char *p;
+		char *p = NULL;
 
-		p = tsocket_address_inet_addr_string(remote_address, mem_ctx);
-		if (p == NULL) {
-			return -1;
+		if (tsocket_address_is_inet(remote_address, "ip")) {
+			p = tsocket_address_inet_addr_string(remote_address, mem_ctx);
+			if (p == NULL) {
+				return -1;
+			}
 		}
 
 		DEBUG(1,("getnameinfo failed for %s with error %s\n",
-			 p,
+			 p?p:"UNKNOWN",
 			 gai_strerror(rc)));
-		strlcpy(name_buf, p, sizeof(name_buf));
+		strlcpy(name_buf, p?p:"UNKNOWN", sizeof(name_buf));
 
 		TALLOC_FREE(p);
 	} else {
