@@ -608,20 +608,30 @@ static bool smbXsrv_client_connection_pass_filter(struct messaging_rec *rec, voi
 	//	talloc_get_type_abort(private_data,
 	//	struct smbXsrv_client);
 
+	DBG_ERR("checking message\n");
 	if (rec->msg_type != MSG_SMBXSRV_CONNECTION_PASS) {
+	DBG_ERR("wrong message type\n");
 		return false;
 	}
+	DBG_ERR("OK: got message MSG_SMBXSRV_CONNECTION_PASS\n");
 
+	DBG_ERR("checking num_fds\n");
 	if (rec->num_fds != 1) {
+	DBG_ERR("illegal number of fds\n");
 		return false;
 	}
+	DEBUG(0,("%s:%s: OK: num_fds == 1\n", __location__, __func__));
 
+	DBG_ERR("checking buffer length\n");
 	if (rec->buf.length < SMB2_HDR_BODY) {
+	DBG_ERR("buffer smaller than SMB2_HDR_BODY\n");
 		return false;
 	}
+	DEBUG(0,("%s:%s: OK: buffer length => SMB2_HDR_BODY\n", __location__, __func__));
 
 	/* TODO: verify client_guid...? */
 
+	DBG_ERR("all OK\n");
 	return true;
 }
 
