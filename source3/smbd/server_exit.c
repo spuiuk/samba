@@ -227,7 +227,9 @@ static void exit_server_common(enum server_exit_reason how,
 
 	if (how != SERVER_EXIT_NORMAL) {
 
-		smb_panic(reason);
+		DEBUG(3,("Server abort (%s)\n",
+			(reason ? reason : "normal exit")));
+		//smb_panic(reason);
 
 		/* Notreached. */
 		exit(1);
