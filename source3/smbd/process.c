@@ -3567,6 +3567,14 @@ NTSTATUS smbXsrv_connection_init_tables(struct smbXsrv_connection *conn,
 		return NT_STATUS_OK;
 	}
 
+	if (protocol >= PROTOCOL_SMB2_10) {
+		conn->client->global->client_guid = conn->smb2.client.guid;
+		status = smbXsrv_client_update(conn->client);
+		if (!NT_STATUS_IS_OK(status)) {
+			return status;
+		}
+	}
+
 	if (protocol >= PROTOCOL_SMB2_02) {
 		status = smb2srv_session_table_init(conn);
 		if (!NT_STATUS_IS_OK(status)) {
