@@ -256,6 +256,10 @@ static struct tevent_req *smbd_smb2_lock_send(TALLOC_CTX *mem_ctx,
 		}
 	}
 
+	if (fsp->op->global->is_resilient) {
+		check_lock_sequence = true;
+	}
+
 	if (check_lock_sequence) {
 		state->lock_sequence_value = in_lock_sequence & 0xF;
 		lock_sequence_bucket = in_lock_sequence >> 4;

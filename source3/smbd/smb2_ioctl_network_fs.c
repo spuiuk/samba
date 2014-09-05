@@ -511,6 +511,79 @@ static NTSTATUS fsctl_validate_neg_info(TALLOC_CTX *mem_ctx,
 	return NT_STATUS_OK;
 }
 
+#if 0
+static NTSTATUS fsctl_srv_req_resume_key(TALLOC_CTX *mem_ctx,
+					 struct tevent_context *ev,
+					 struct files_struct *fsp,
+					 uint32_t in_max_output,
+					 DATA_BLOB *out_output)
+{
+	struct req_resume_key_rsp rkey_rsp;
+	enum ndr_err_code ndr_ret;
+	DATA_BLOB output;
+
+	if (fsp == NULL) {
+		return NT_STATUS_FILE_CLOSED;
+	}
+
+	ZERO_STRUCT(rkey_rsp);
+	/* combine persistent and volatile handles for the resume key */
+	SBVAL(rkey_rsp.resume_key, 0, fsp->op->global->open_persistent_id);
+	SBVAL(rkey_rsp.resume_key, 8, fsp->op->global->open_volatile_id);
+
+	ndr_ret = ndr_push_struct_blob(&output, mem_ctx, &rkey_rsp,
+			(ndr_push_flags_fn_t)ndr_push_req_resume_key_rsp);
+	if (ndr_ret != NDR_ERR_SUCCESS) {
+		return NT_STATUS_INTERNAL_ERROR;
+	}
+
+	if (in_max_output < output.length) {
+		DEBUG(1, ("max output %u too small for resume key rsp %ld\n",
+			  (unsigned int)in_max_output, (long int)output.length));
+		return NT_STATUS_INVALID_PARAMETER;
+	}
+	*out_output = output;
+
+	return NT_STATUS_OK;
+}
+#endif
+
+static NTSTATUS fsctl_network_resiliency(TALLOC_CTX *mem_ctx,
+					 struct tevent_context *ev,
+					 struct files_struct *in_fsp,
+					 DATA_BLOB *in_input,
+					 uint32_t in_max_output,
+					 DATA_BLOB *out_output)
+{
+	NTSTATUS status;
+	uint32_t in_timeout;
+
+	*out_output = data_blob_null;
+
+	if (in_fsp == NULL) {
+		return NT_STATUS_FILE_CLOSED;
+	}
+
+	if (in_input->length < 8) {
+		return NT_STATUS_INVALID_PARAMETER;
+	}
+
+	in_timeout = IVAL(in_input->data, 0);
+	if (in_timeout > 300000) {
+		return NT_STATUS_INVALID_PARAMETER;
+	}
+
+	in_fsp->op->global->is_resilient = true;
+
+	status = smbXsrv_open_update(in_fsp->op);
+	if (!NT_STATUS_IS_OK(status)) {
+		in_fsp->op->global->is_resilient = false;
+		return status;
+	}
+
+	return NT_STATUS_OK;
+}
+
 static void smb2_ioctl_network_fs_copychunk_done(struct tevent_req *subreq);
 static void smb2_ioctl_network_fs_offload_read_done(struct tevent_req *subreq);
 
@@ -593,7 +666,17 @@ struct tevent_req *smb2_ioctl_network_fs(uint32_t ctl_code,
 		tevent_req_set_callback(
 			subreq, smb2_ioctl_network_fs_offload_read_done, req);
 		return req;
-
+	case FSCTL_LMR_REQ_RESILIENCY:
+		status = fsctl_network_resiliency(state, ev,
+						  state->fsp,
+						  &state->in_input,
+						  state->in_max_output,
+						  &state->out_output);
+		if (!tevent_req_nterror(req, status)) {
+			tevent_req_done(req);
+		}
+		return tevent_req_post(req, ev);
+		break;
 	default: {
 		uint8_t *out_data = NULL;
 		uint32_t out_data_len = 0;
