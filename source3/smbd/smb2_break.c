@@ -438,6 +438,12 @@ static NTSTATUS smbd_smb2_lease_break_recv(struct tevent_req *req,
  SMB2 OPLOCK_BREAK_NOTIFICATION.
 *********************************************************/
 
+struct send_break_message_smb2_state {
+	struct files_struct *fsp;
+	int level;
+	uint32_t tcp_seqnum;
+};
+
 void send_break_message_smb2(files_struct *fsp,
 			     uint32_t break_from,
 			     uint32_t break_to)

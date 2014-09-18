@@ -465,6 +465,7 @@ struct smbXsrv_connection {
 		} request_read_state;
 		struct smbd_smb2_send_queue *send_queue;
 		size_t send_queue_len;
+		struct smbd_smb2_send_queue *ack_queue;
 
 		struct {
 			/*
@@ -685,6 +686,12 @@ struct smbd_smb2_send_queue {
 	NTSTATUS *sendfile_status;
 	struct iovec *vector;
 	int count;
+
+	struct {
+		struct tevent_req *req;
+		bool started;
+		uint32_t seqnum;
+	} ack;
 
 	TALLOC_CTX *mem_ctx;
 };

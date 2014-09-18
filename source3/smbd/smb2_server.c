@@ -31,6 +31,7 @@
 #include "lib/util/iov_buf.h"
 #include "auth.h"
 #include "lib/crypto/sha512.h"
+#include "lib/tevent_wait.h"
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_SMB2
@@ -3259,6 +3260,18 @@ struct smbd_smb2_send_break_state {
 	uint8_t body[1];
 };
 
+static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
+{
+	struct smbd_smb2_send_break_state *state =
+		tevent_req_callback_data(ack_req,
+		struct smbd_smb2_send_break_state);
+
+	tevent_wait_recv(ack_req);
+	TALLOC_FREE(ack_req);
+
+	TALLOC_FREE(state);
+}
+
 static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
@@ -3373,6 +3386,13 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	state->queue_entry.mem_ctx = state;
 	state->queue_entry.vector = state->vector;
 	state->queue_entry.count = ARRAY_SIZE(state->vector);
+	state->queue_entry.ack.req = tevent_wait_send(state, xconn->ev_ctx);
+	if (state->queue_entry.ack.req == NULL) {
+		return NT_STATUS_NO_MEMORY;
+	}
+	tevent_req_set_callback(state->queue_entry.ack.req,
+				smbd_smb2_send_break_done,
+				state);
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
 
@@ -3665,12 +3685,47 @@ static int socket_error_from_errno(int ret,
 	return sys_errno;
 }
 
+static NTSTATUS smbd_smb2_check_ack_queue(struct smbXsrv_connection *xconn)
+{
+	while (xconn->smb2.ack_queue != NULL) {
+		struct smbd_smb2_send_queue *e = xconn->smb2.ack_queue;
+		struct tcp_info info;
+		socklen_t ilen = sizeof(info);
+		int ret;
+
+		ret = getsockopt(xconn->transport.sock, IPPROTO_TCP,
+				 TCP_INFO, (void *)&info, &ilen);
+		if (ret != 0) {
+			DEBUG(0,("%s:%s: errno[%d/%s]\n",
+			      __location__, __func__,
+			      errno, strerror(errno)));
+			ZERO_STRUCT(info);
+		} else {
+			DEBUG(0,("%s:%s: unacked[%u] sacked[%u]\n",
+			      __location__, __func__,
+			      (unsigned)info.tcpi_unacked,
+			      (unsigned)info.tcpi_sacked));
+		}
+
+		DLIST_REMOVE(xconn->smb2.ack_queue, e);
+		//e->ack.seqnum >=info.tcpi_sacked + iov_buflen(e->vector, e->count);
+		tevent_wait_done(e->ack.req);
+	}
+
+	return NT_STATUS_OK;
+}
+
 static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 {
 	int ret;
 	int err;
 	bool retry;
 	NTSTATUS status;
+
+	status = smbd_smb2_check_ack_queue(xconn);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
 
 	if (xconn->smb2.send_queue == NULL) {
 		TEVENT_FD_NOT_WRITEABLE(xconn->transport.fde);
@@ -3713,6 +3768,7 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			e->sendfile_header->length = size;
 			e->sendfile_status = &status;
 			e->count = 0;
+			status = NT_STATUS_INTERNAL_ERROR;
 
 			xconn->smb2.send_queue_len--;
 			DLIST_REMOVE(xconn->smb2.send_queue, e);
@@ -3726,6 +3782,28 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 				return status;
 			}
 			continue;
+		}
+
+		if (e->ack.req != NULL && !e->ack.started) {
+			struct tcp_info info;
+			socklen_t ilen = sizeof(info);
+
+			ret = getsockopt(xconn->transport.sock, IPPROTO_TCP,
+					 TCP_INFO, (void *)&info, &ilen);
+			if (ret != 0) {
+				DEBUG(0,("%s:%s: errno[%d/%s]\n",
+				      __location__, __func__,
+				      errno, strerror(errno)));
+				ZERO_STRUCT(info);
+			} else {
+				DEBUG(0,("%s:%s: unacked[%u] sacked[%u]\n",
+				      __location__, __func__,
+				      (unsigned)info.tcpi_unacked,
+				      (unsigned)info.tcpi_sacked));
+			}
+
+			e->ack.started = true;
+			e->ack.seqnum = info.tcpi_sacked + iov_buflen(e->vector, e->count);
 		}
 
 		ret = writev(xconn->transport.sock, e->vector, e->count);
@@ -3754,9 +3832,23 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			return NT_STATUS_OK;
 		}
 
+		if (e->ack.req != NULL && e->ack.started) {
+			tevent_wait_done(e->ack.req);
+		}
+
 		xconn->smb2.send_queue_len--;
 		DLIST_REMOVE(xconn->smb2.send_queue, e);
+		if (e->ack.req != NULL && e->ack.started) {
+			DLIST_ADD_END(xconn->smb2.ack_queue, e);
+			continue;
+		}
 		talloc_free(e->mem_ctx);
+	}
+
+	/* not sure after rebase ... */
+	status = smbd_smb2_check_ack_queue(xconn);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
 	}
 
 	/*
