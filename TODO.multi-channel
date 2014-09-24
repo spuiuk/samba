@@ -1,0 +1,83 @@
+TODOs for multi-channel
+=======================
+
+- preview-diff doc ms-smb2, june22:
+  p 297, create validation:
+
+  "If CreateOptions includes FILE_NO_INTERMEDIATE_BUFFERING and
+  DesiredAccess includes FILE_APPEND_DATA, the server MUST set
+  FILE_APPEND_DATA to zero in the DesiredAccess field in the
+  request."
+
+- test / find / fix: dgram messaging send hangs for data (iov) of 30K
+
+- in session bind: verify same clientGUID and smb dialect as existing sessions
+
+  !! According to latest comments and preview docs by Microsoft,
+  !! is the ClientGUID reliable enough to be used by us for the
+  !! purpose of pro-actively moving connections to an smbd that
+  !! is already serving connections from the same GUID?
+  !!
+  !! The new diff doc (June22) is at least inconsistent in that
+  !! it removes the ClientGUID from the lease-identifyer....
+  !!
+  !! ==> Currently in clarification.
+
+- index for CreateGUID->smbXsrv_open entry to support create replay
+
+
+- oplock breaks:
+
+  when we send oplock/lease break,
+  then we need to make sure that the client receives it.
+  problematic case is when a channel failure occurs
+  while we send this out. The client may not have
+  received it (in which case we need to retry on a diffrent
+  channel), or it may have sent out the ACK on a different
+  channel, in which case we are good.
+
+  => possibility: watch TCP state to verify
+  => have (hack) patch in the tree
+     (using IPPROTO_TCP TCP_INFO ...)
+     TODO: do better (?)
+     how portable is this? ((Free)BSD, *solaris)
+  => possibly implement support for IPPROTO_TCP TCP_INFO
+     in socket wrapper to test it
+
+
+- interface characteristics:
+  how to do it?
+  - ethtool-like for linux
+  - bsd/solaris
+  - smb.conf option (interfaces = IP:bw)
+  - clustering/ctdb: MC addresses should not be ctdb public addresses
+    for clustering = yes, each IF should have a static IP address in addition
+    to the public ones, only the static ones would get listed in the
+    query interfaces response.
+
+- session bind vs. previous_session_id:
+  doc (3.3.5.5 and 3.3.5.5.3) seems to imply
+  that session reconnect at session bind is OK
+
+  TODO: verify
+
+tests:
+
+- multi-channel support in smbclient?
+
+- torture-test:
+
+  - smbtorture bench
+  - # channels -> open channels
+  - file: size = (#channels) * chunk-size (8mb) [ or chunk-size ]
+  - open
+  - read on each channel in a loop
+  - async smbXcli_read .... for each channel (in event-loop)
+
+  - alterantively:
+  - open conn
+  - open file
+  - make #channel forks
+  - create channel in child
+  - (only possibly problematic if using encryption,
+     could give each connection/client nonce offset)
