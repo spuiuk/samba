@@ -807,7 +807,7 @@ int messaging_send_iov_from(struct messaging_context *msg_ctx,
 			    const int *fds, size_t num_fds)
 {
 	int ret;
-	uint8_t hdr[MESSAGE_HDR_LENGTH];
+	uint8_t hdr[MESSAGE_HDR_LENGTH] = { 0 };
 	struct iovec iov2[iovlen+1];
 
 	if (server_id_is_disconnected(&dst)) {
