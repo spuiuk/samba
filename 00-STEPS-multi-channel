@@ -15,3 +15,4 @@ Steps in the multi-channel branch.
 - STEP07b : session bind [DEBUG]
 - STEP00 : misc stuff
 - STEP05 : session lookup [DEBUG]
+- STEP11 : lock sequence/replay detection
