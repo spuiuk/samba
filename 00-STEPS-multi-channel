@@ -12,3 +12,4 @@ Steps in the multi-channel branch.
 - STEP02x : SMB connection passing - extra
 - STEP02b : SMB connection passing [DEBUG]
 - STEP02c : SMB connection passing [tests]
+- STEP07b : session bind [DEBUG]
