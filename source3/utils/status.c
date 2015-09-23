@@ -497,13 +497,14 @@ static int traverse_sessionid(const char *key, struct sessionid *session,
 	}
 
 
-	d_printf("%-7s %-25s %-41s %-17s %-20s %-21s\n",
+	d_printf("%-7s %-25s %-41s %-17s %-20s %-21s %s\n",
 		 server_id_str_buf(session->pid, &tmp),
 		 uid_gid_str,
 		 machine_hostname,
 		 session_dialect_str(session->connection_dialect),
 		 encryption,
-		 signing);
+		 signing,
+		 session->id_str);
 
 	TALLOC_FREE(machine_hostname);
 
