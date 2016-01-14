@@ -18,3 +18,5 @@ Steps in the multi-channel branch.
 - STEP11 : lock sequence/replay detection
 - STEP12 : channel squence/replay
 - STEP20 : capabilites announcement
+
+- STEPXX : server changes
