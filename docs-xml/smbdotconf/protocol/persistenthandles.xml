@@ -1,0 +1,32 @@
+<samba:parameter name="persistent handles"
+                 context="G"
+                 type="boolean"
+                 xmlns:samba="http://www.samba.org/samba/DTD/samba-doc">
+<description>
+    <para>This boolean parameter controls whether
+    <citerefentry><refentrytitle>smbd</refentrytitle>
+    <manvolnum>8</manvolnum></citerefentry> will announce support
+    for SMB3 persistent file handles.
+    </para>
+    <para>
+    In order for smbd to hand out persistent handles on a share,
+    that share must be made continuously available by setting
+    <smbconfoption name="continuously available share">yes</smbconfoption>.
+    Note that like durable handles, persistent handles are only enabled
+    if additionally
+    <smbconfoption name="kernel oplocks">no</smbconfoption>,
+    <smbconfoption name="kernel share modes">no</smbconfoption>, and
+    <smbconfoption name="posix locking">no</smbconfoption>,
+    i.e. if the share is configured for SMB only access,
+    not supporting interoperability features with local UNIX processes
+    or NFS operations.
+    </para>
+    <para>This parameter has been added with Samba version 4.4.</para>
+    <para>
+    Warning: This feature is experimental in Samba 4.4 and not
+    meant for production use!
+    </para>
+</description>
+
+<value type="default">no</value>
+</samba:parameter>
