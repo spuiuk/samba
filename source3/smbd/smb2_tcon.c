@@ -400,6 +400,12 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 		*out_share_flags |= SMB2_SHAREFLAG_ENCRYPT_DATA;
 	}
 
+	if (conn->protocol >= PROTOCOL_SMB2_22 &&
+	    lp_cluster_share(SNUM(tcon->compat)))
+	{
+		*out_capabilities |= SMB2_SHARE_CAP_CLUSTER;
+	}
+
 	*out_maximal_access = tcon->compat->share_access;
 
 	*out_tree_id = tcon->global->tcon_wire_id;
