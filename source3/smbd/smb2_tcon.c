@@ -401,6 +401,11 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 	}
 
 	if (conn->protocol >= PROTOCOL_SMB2_22 &&
+	    lp_continuously_available_share(SNUM(tcon->compat)))
+	{
+		*out_capabilities |= SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY;
+	}
+	if (conn->protocol >= PROTOCOL_SMB2_22 &&
 	    lp_cluster_share(SNUM(tcon->compat)))
 	{
 		*out_capabilities |= SMB2_SHARE_CAP_CLUSTER;
