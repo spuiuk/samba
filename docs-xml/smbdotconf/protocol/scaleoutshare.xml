@@ -1,0 +1,19 @@
+<samba:parameter name="scale out share"
+                 context="S"
+                 type="boolean"
+                 xmlns:samba="http://www.samba.org/samba/DTD/samba-doc">
+<description>
+    <para>
+    This parameter controls whether smbd will announce the
+    scale-out capability on a share.
+    </para>
+    <para>
+    This parameter has been added with Samba version 4.4.
+    </para>
+    <para>
+    Warning: This parameter is considered experimental in Samba 4.4.
+    </para>
+</description>
+
+<value type="default">no</value>
+</samba:parameter>
