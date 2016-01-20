@@ -528,6 +528,12 @@ NTSTATUS smbd_smb2_request_process_negprot(struct smbd_smb2_request *req)
 		}
 	}
 
+	if (protocol >= PROTOCOL_SMB2_22 && lp_persistent_handles()) {
+		if (in_capabilities & SMB2_CAP_PERSISTENT_HANDLES) {
+			capabilities |= SMB2_CAP_PERSISTENT_HANDLES;
+		}
+	}
+
 	security_offset = SMB2_HDR_BODY + 0x40;
 
 #if 1
