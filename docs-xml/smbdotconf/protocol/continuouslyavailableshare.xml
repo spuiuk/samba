@@ -1,0 +1,31 @@
+<samba:parameter name="continuously available share"
+                 context="S"
+                 type="boolean"
+                 xmlns:samba="http://www.samba.org/samba/DTD/samba-doc">
+<description>
+    <para>
+    If the global parameter
+    <smbconfoption name="persistent handles">yes</smbconfoption>,
+    this boolean parameter controls whether a share will hand
+    out persistent file handles.
+    </para>
+    <para>
+    Note that like durable handles, persistent handles will currently
+    only be handed out, if additionally
+    <smbconfoption name="kernel oplocks">no</smbconfoption>,
+    <smbconfoption name="kernel share modes">no</smbconfoption>, and
+    <smbconfoption name="posix locking">no</smbconfoption>,
+    i.e. if the share is configured for SMB only access,
+    not supporting interoperability features with local UNIX processes
+    or NFS operations.
+    </para>
+    <para>
+    This parameter has been added with Samba version 4.4.
+    </para>
+    <para>
+    Warning: This parameter is considered experimental in Samba 4.4.
+    </para>
+</description>
+
+<value type="default">no</value>
+</samba:parameter>
