@@ -400,6 +400,12 @@ static NTSTATUS smbd_smb2_tree_connect(struct smbd_smb2_request *req,
 		*out_share_flags |= SMB2_SHAREFLAG_ENCRYPT_DATA;
 	}
 
+	if (lp_parm_bool(SNUM(tcon->compat), "smbd", "announce branch cache v1", false)) {
+		*out_share_flags |= SMB2_SHAREFLAG_ENABLE_HASH_V1;
+	}
+	if (lp_parm_bool(SNUM(tcon->compat), "smbd", "announce branch cache v2", false)) {
+		*out_share_flags |= SMB2_SHAREFLAG_ENABLE_HASH_V2;
+	}
 	if (conn->protocol >= PROTOCOL_SMB2_22 &&
 	    lp_continuously_available_share(SNUM(tcon->compat)))
 	{
