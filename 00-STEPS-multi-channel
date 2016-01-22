@@ -8,3 +8,4 @@ Steps in the multi-channel branch.
 - STEP10 : network interface discovery [UPSTREAM]
 - STEP02 : SMB connection passing [UPSTREAM]
 - STEP07a : enable multi channel
+- STEP02a : SMB connection passing - HACK swrap
