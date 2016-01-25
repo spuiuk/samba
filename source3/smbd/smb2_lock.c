@@ -236,11 +236,21 @@ static struct tevent_req *smbd_smb2_lock_send(TALLOC_CTX *mem_ctx,
 		  fsp_str_dbg(fsp), fsp_fnum_dbg(fsp)));
 
 	/*
-	 * TODO: Windows sets check_lock_sequence = true
-	 * only for resilient and persistent handles
+	 * Windows sets check_lock_sequence = true
+	 * only for resilient and persistent handles.
 	 *
-	 * What about other handles using multi-channel?
+	 * According to MS-SMB2 section 3.3.5.14 a server SHOULD activate
+	 * processing of lock sequence numbers for EITHER
+	 * - protocol dialect 2.1 and resilient handles
+	 * OR
+	 * - protocol dialect 3.x.
+	 *
+	 * TODO: What about other handles using multi-channel?
 	 */
+	if (smb2req->xconn->protocol >= PROTOCOL_SMB2_22) {
+		check_lock_sequence = true;
+	}
+
 	if (check_lock_sequence) {
 		state->lock_sequence_value = in_lock_sequence & 0xF;
 		lock_sequence_bucket = in_lock_sequence >> 4;
