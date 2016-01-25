@@ -2913,19 +2913,31 @@ static bool test_replay(struct torture_context *torture,
 		.in.file.handle	= h
 	};
 
-	torture_comment(torture, "Testing Lock Replay detection [ignored]:\n");
-	lck.in.lock_sequence = 0x010 + 0x1;
-	el.flags = SMB2_LOCK_FLAG_EXCLUSIVE | SMB2_LOCK_FLAG_FAIL_IMMEDIATELY;
-	status = smb2_lock(tree, &lck);
-	CHECK_STATUS(status, NT_STATUS_OK);
-	status = smb2_lock(tree, &lck);
-	CHECK_STATUS(status, NT_STATUS_LOCK_NOT_GRANTED);
+	if (TARGET_IS_SAMBA3(torture)) {
 
-	el.flags = SMB2_LOCK_FLAG_UNLOCK;
-	status = smb2_lock(tree, &lck);
-	CHECK_STATUS(status, NT_STATUS_OK);
-	status = smb2_lock(tree, &lck);
-	CHECK_STATUS(status, NT_STATUS_RANGE_NOT_LOCKED);
+		if (smbXcli_conn_protocol(transport->conn) < PROTOCOL_SMB2_22) {
+			torture_warning(torture, "SMB 2.22 Dialect family or above \
+					required for Lock Replay tests against \
+					Samba\n");
+			goto done;
+		}
+
+	} else {
+
+		torture_comment(torture, "Testing Lock Replay detection [ignored]:\n");
+		lck.in.lock_sequence = 0x010 + 0x1;
+		el.flags = SMB2_LOCK_FLAG_EXCLUSIVE | SMB2_LOCK_FLAG_FAIL_IMMEDIATELY;
+		status = smb2_lock(tree, &lck);
+		CHECK_STATUS(status, NT_STATUS_OK);
+		status = smb2_lock(tree, &lck);
+		CHECK_STATUS(status, NT_STATUS_LOCK_NOT_GRANTED);
+
+		el.flags = SMB2_LOCK_FLAG_UNLOCK;
+		status = smb2_lock(tree, &lck);
+		CHECK_STATUS(status, NT_STATUS_OK);
+		status = smb2_lock(tree, &lck);
+		CHECK_STATUS(status, NT_STATUS_RANGE_NOT_LOCKED);
+	}
 
 	torture_comment(torture, "Testing Set Resiliency:\n");
 	SIVAL(res_req, 0, 1000); /* timeout */
@@ -2940,7 +2952,12 @@ static bool test_replay(struct torture_context *torture,
 		.in.out.length = sizeof(res_req)
 	};
 	status = smb2_ioctl(tree, torture, &ioctl);
-	CHECK_STATUS(status, NT_STATUS_OK);
+	if (NT_STATUS_EQUAL(status, NT_STATUS_INVALID_DEVICE_REQUEST)) {
+		torture_warning(torture, "Server does not support "
+					 "Resilient File Handles");
+	} else {
+		CHECK_STATUS(status, NT_STATUS_OK);
+	}
 
 	/*
 	 * Test with an invalid bucket number (only 1..64 are valid).
