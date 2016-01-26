@@ -9,3 +9,4 @@ Steps in the multi-channel branch.
 - STEP02 : SMB connection passing [UPSTREAM]
 - STEP07a : enable multi channel
 - STEP02a : SMB connection passing - HACK swrap
+- STEP02x : SMB connection passing - extra
