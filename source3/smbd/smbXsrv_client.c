@@ -571,6 +571,10 @@ NTSTATUS smbXsrv_client_create(TALLOC_CTX *mem_ctx,
 
 static bool smbXsrv_client_connection_pass_filter(struct messaging_rec *rec, void *private_data)
 {
+	//struct smbXsrv_client *client =
+	//	talloc_get_type_abort(private_data,
+	//	struct smbXsrv_client);
+
 	if (rec->msg_type != MSG_SMBXSRV_CONNECTION_PASS) {
 		return false;
 	}
