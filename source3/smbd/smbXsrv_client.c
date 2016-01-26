@@ -532,6 +532,15 @@ NTSTATUS smbXsrv_client_create(TALLOC_CTX *mem_ctx,
 
 	talloc_set_destructor(client, smbXsrv_client_destructor);
 
+	//status = smbXsrv_client_global_store(global);
+	//if (!NT_STATUS_IS_OK(status)) {
+	//	DBG_ERR("client_guid[%s] store failed - %s\n",
+	//		GUID_string(talloc_tos(), &global->client_guid),
+	//		nt_errstr(status));
+	//	TALLOC_FREE(client);
+	//	return status;
+	//}
+
 	if (DEBUGLVL(DBGLVL_DEBUG)) {
 		struct smbXsrv_clientB client_blob;
 		struct GUID_txt_buf buf;
