@@ -584,6 +584,7 @@ static void smbXsrv_client_connection_pass_loop(struct tevent_req *subreq)
 	struct smbXsrv_client *client =
 		tevent_req_callback_data(subreq,
 		struct smbXsrv_client);
+	//struct smbXsrv_client_table *table = client->table;
 	struct smbXsrv_connection *xconn = NULL;
 	int ret;
 	struct messaging_rec *rec = NULL;
