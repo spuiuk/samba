@@ -41,6 +41,7 @@
 
 struct smbXsrv_client_table {
 	struct {
+//		struct db_context *db_ctx;
 		uint32_t max_clients;
 		uint32_t num_clients;
 	} local;
@@ -159,6 +160,11 @@ static NTSTATUS smbXsrv_client_table_create(TALLOC_CTX *mem_ctx,
 		return NT_STATUS_NO_MEMORY;
 	}
 
+	//table->local.db_ctx = db_open_rbt(table);
+	//if (table->local.db_ctx == NULL) {
+	//	TALLOC_FREE(table);
+	//	return NT_STATUS_NO_MEMORY;
+	//}
 	table->local.max_clients = max_clients;
 
 	status = smbXsrv_client_global_init();
@@ -485,7 +491,9 @@ NTSTATUS smbXsrv_client_create(TALLOC_CTX *mem_ctx,
 			       struct smbXsrv_client **_client)
 {
 	struct smbXsrv_client_table *table;
+	//struct db_record *local_rec = NULL;
 	struct smbXsrv_client *client = NULL;
+	//void *ptr = NULL;
 	struct smbXsrv_client_global0 *global = NULL;
 	NTSTATUS status;
 	struct tevent_req *subreq = NULL;
@@ -527,7 +535,32 @@ NTSTATUS smbXsrv_client_create(TALLOC_CTX *mem_ctx,
 	global->initial_connect_time = now;
 
 	global->server_id = messaging_server_id(client->msg_ctx);
-
+//	global->local_address = tsocket_address_string(conn->local_address,
+//						       global);
+//	if (global->local_address == NULL) {
+//		TALLOC_FREE(client);
+//		return NT_STATUS_NO_MEMORY;
+//	}
+//	global->remote_address = tsocket_address_string(conn->remote_address,
+//						        global);
+//	if (global->remote_address == NULL) {
+//		TALLOC_FREE(client);
+//		return NT_STATUS_NO_MEMORY;
+//	}
+//	global->remote_name = talloc_strdup(global, conn->remote_hostname);
+//	if (global->remote_name == NULL) {
+//		TALLOC_FREE(client);
+//		return NT_STATUS_NO_MEMORY;
+//	}
+//
+//	ptr = client;
+//	val = make_tdb_data((uint8_t const *)&ptr, sizeof(ptr));
+//	status = dbwrap_record_store(local_rec, val, TDB_REPLACE);
+//	TALLOC_FREE(local_rec);
+//	if (!NT_STATUS_IS_OK(status)) {
+//		TALLOC_FREE(client);
+//		return status;
+//	}
 	table->local.num_clients += 1;
 
 	talloc_set_destructor(client, smbXsrv_client_destructor);
