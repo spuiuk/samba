@@ -844,3 +844,215 @@ NTSTATUS smbXsrv_client_remove(struct smbXsrv_client *client)
 
 	return NT_STATUS_OK;
 }
+#if 0
+NTSTATUS smbXsrv_client_find_channel(const struct smbXsrv_client *client,
+				      const struct smbXsrv_connection *conn,
+				      struct smbXsrv_channel_global0 **_c)
+{
+	uint32_t i;
+
+	for (i=0; i < client->global->num_channels; i++) {
+		struct smbXsrv_channel_global0 *c = &client->global->channels[i];
+
+		if (c->connection == conn) {
+			*_c = c;
+			return NT_STATUS_OK;
+		}
+	}
+
+	return NT_STATUS_USER_SESSION_DELETED;
+}
+
+NTSTATUS smbXsrv_client_logoff(struct smbXsrv_client *client)
+{
+	struct smbXsrv_client_table *table;
+	struct db_record *local_rec = NULL;
+	struct db_record *global_rec = NULL;
+	struct smbd_server_connection *sconn = NULL;
+	NTSTATUS status;
+	NTSTATUS error = NT_STATUS_OK;
+
+	if (client->table == NULL) {
+		return NT_STATUS_OK;
+	}
+
+	table = client->table;
+	client->table = NULL;
+
+	sconn = client->client->sconn;
+	client->client = NULL;
+	client->status = NT_STATUS_USER_SESSION_DELETED;
+
+	global_rec = client->global->db_rec;
+	client->global->db_rec = NULL;
+	if (global_rec == NULL) {
+		uint8_t key_buf[SMBXSRV_CLIENT_GLOBAL_TDB_KEY_SIZE];
+		TDB_DATA key;
+
+		key = smbXsrv_client_global_id_to_key(
+					client->global->client_global_id,
+					key_buf);
+
+		global_rec = dbwrap_fetch_locked(table->global.db_ctx,
+						 client->global, key);
+		if (global_rec == NULL) {
+			DEBUG(0, ("smbXsrv_client_logoff(0x%08x): "
+				  "Failed to lock global key '%s'\n",
+				  client->global->client_global_id,
+				  hex_encode_talloc(global_rec, key.dptr,
+						    key.dsize)));
+			error = NT_STATUS_INTERNAL_ERROR;
+		}
+	}
+
+	if (global_rec != NULL) {
+		status = dbwrap_record_delete(global_rec);
+		if (!NT_STATUS_IS_OK(status)) {
+			TDB_DATA key = dbwrap_record_get_key(global_rec);
+
+			DEBUG(0, ("smbXsrv_client_logoff(0x%08x): "
+				  "failed to delete global key '%s': %s\n",
+				  client->global->client_global_id,
+				  hex_encode_talloc(global_rec, key.dptr,
+						    key.dsize),
+				  nt_errstr(status)));
+			error = status;
+		}
+	}
+	TALLOC_FREE(global_rec);
+
+	local_rec = client->db_rec;
+	if (local_rec == NULL) {
+		uint8_t key_buf[SMBXSRV_CLIENT_LOCAL_TDB_KEY_SIZE];
+		TDB_DATA key;
+
+		key = smbXsrv_client_local_id_to_key(client->local_id,
+						      key_buf);
+
+		local_rec = dbwrap_fetch_locked(table->local.db_ctx,
+						client, key);
+		if (local_rec == NULL) {
+			DEBUG(0, ("smbXsrv_client_logoff(0x%08x): "
+				  "Failed to lock local key '%s'\n",
+				  client->global->client_global_id,
+				  hex_encode_talloc(local_rec, key.dptr,
+						    key.dsize)));
+			error = NT_STATUS_INTERNAL_ERROR;
+		}
+	}
+
+	if (local_rec != NULL) {
+		status = dbwrap_record_delete(local_rec);
+		if (!NT_STATUS_IS_OK(status)) {
+			TDB_DATA key = dbwrap_record_get_key(local_rec);
+
+			DEBUG(0, ("smbXsrv_client_logoff(0x%08x): "
+				  "failed to delete local key '%s': %s\n",
+				  client->global->client_global_id,
+				  hex_encode_talloc(local_rec, key.dptr,
+						    key.dsize),
+				  nt_errstr(status)));
+			error = status;
+		}
+		table->local.num_clients -= 1;
+	}
+	if (client->db_rec == NULL) {
+		TALLOC_FREE(local_rec);
+	}
+	client->db_rec = NULL;
+
+	if (client->compat) {
+		file_close_user(sconn, client->compat->vuid);
+	}
+
+	if (client->tcon_table != NULL) {
+		status = smb2srv_tcon_disconnect_all(client);
+		if (!NT_STATUS_IS_OK(status)) {
+			DEBUG(0, ("smbXsrv_client_logoff(0x%08x): "
+				  "smb2srv_tcon_disconnect_all() failed: %s\n",
+				  client->global->client_global_id,
+				  nt_errstr(status)));
+			error = status;
+		}
+	}
+
+	if (client->compat) {
+		invalidate_vuid(sconn, client->compat->vuid);
+		client->compat = NULL;
+	}
+
+	return error;
+}
+
+struct smbXsrv_client_global_traverse_state {
+	int (*fn)(struct smbXsrv_client_global0 *, void *);
+	void *private_data;
+};
+
+static int smbXsrv_client_global_traverse_fn(struct db_record *rec, void *data)
+{
+	int ret = -1;
+	struct smbXsrv_client_global_traverse_state *state =
+		(struct smbXsrv_client_global_traverse_state*)data;
+	TDB_DATA key = dbwrap_record_get_key(rec);
+	TDB_DATA val = dbwrap_record_get_value(rec);
+	DATA_BLOB blob = data_blob_const(val.dptr, val.dsize);
+	struct smbXsrv_client_globalB global_blob;
+	enum ndr_err_code ndr_err;
+	TALLOC_CTX *frame = talloc_stackframe();
+
+	ndr_err = ndr_pull_struct_blob(&blob, frame, &global_blob,
+			(ndr_pull_flags_fn_t)ndr_pull_smbXsrv_client_globalB);
+	if (!NDR_ERR_CODE_IS_SUCCESS(ndr_err)) {
+		DEBUG(1,("Invalid record in smbXsrv_client_global.tdb:"
+			 "key '%s' ndr_pull_struct_blob - %s\n",
+			 hex_encode_talloc(frame, key.dptr, key.dsize),
+			 ndr_errstr(ndr_err)));
+		goto done;
+	}
+
+	if (global_blob.version != SMBXSRV_VERSION_0) {
+		DEBUG(1,("Invalid record in smbXsrv_client_global.tdb:"
+			 "key '%s' unsuported version - %d\n",
+			 hex_encode_talloc(frame, key.dptr, key.dsize),
+			 (int)global_blob.version));
+		goto done;
+	}
+
+	global_blob.info.info0->db_rec = rec;
+	ret = state->fn(global_blob.info.info0, state->private_data);
+done:
+	TALLOC_FREE(frame);
+	return ret;
+}
+
+NTSTATUS smbXsrv_client_global_traverse(
+			int (*fn)(struct smbXsrv_client_global0 *, void *),
+			void *private_data)
+{
+
+	NTSTATUS status;
+	int count = 0;
+	struct smbXsrv_client_global_traverse_state state = {
+		.fn = fn,
+		.private_data = private_data,
+	};
+
+	become_root();
+	status = smbXsrv_client_global_init();
+	if (!NT_STATUS_IS_OK(status)) {
+		unbecome_root();
+		DEBUG(0, ("Failed to initialize client_global: %s\n",
+			  nt_errstr(status)));
+		return status;
+	}
+
+	status = dbwrap_traverse_read(smbXsrv_client_global_db_ctx,
+				      smbXsrv_client_global_traverse_fn,
+				      &state,
+				      &count);
+	unbecome_root();
+
+	return status;
+}
+#endif
