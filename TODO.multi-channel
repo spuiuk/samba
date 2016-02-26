@@ -1,6 +1,27 @@
 TODOs for multi-channel
 =======================
 
+- create replay:
+  --------------
+  Questions: (==> torture tests)
+  - are fields / create contexts of the replayed request
+    checked against the original request?
+  - do differences lead to errors?
+  - what is used to compose the reply to the replayed create?
+    original request or replayed requetst...
+
+  e.g.:
+  - original request had a batch lease, but replayed has a read lease
+  - original request has different access mask than replayed one
+  - original request has different share mode than replated one
+
+- channel sequence number
+  -----------------------
+  
+  - overflow handling ...
+
+
+
 - preview-diff doc ms-smb2, june22:
   p 297, create validation:
 
