@@ -65,6 +65,17 @@ TODOs for multi-channel
   => possibly implement support for IPPROTO_TCP TCP_INFO
      in socket wrapper to test it
 
+  possibly at first without IPPROTO ... :
+
+  - send oplock/lease break
+  - start timer
+  - remember current tcp sequence number
+  - disable timer if oplock/lease break reply comes in
+  - if timer expires:
+    check acknowledged tcp seq num vs remebered one
+    if remembered one is not acknowledged, consider
+    channel broken and resend break request on other channel
+
 
 - interface characteristics:
   how to do it?
