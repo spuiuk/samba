@@ -196,7 +196,6 @@
 ^samba3.smb2.compound.aio.interim2 # wrong return code (STATUS_CANCELLED)
 ^samba3.smb2.replay.channel-sequence
 ^samba3.smb2.replay.replay3
-^samba3.smb2.replay.replay4
 ^samba3.smb2.lease.statopen3
 ^samba3.smb2.lease.unlink # we currently do not downgrade RH lease to R after unlink
 ^samba3.smb2.multichannel
