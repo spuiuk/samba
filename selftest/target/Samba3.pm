@@ -197,6 +197,7 @@ sub setup_nt4_dc
 	print "PROVISIONING NT4 DC...";
 
 	my $nt4_dc_options = "
+	server multi channel support = yes
 	domain master = yes
 	domain logons = yes
 	lanman auth = yes
