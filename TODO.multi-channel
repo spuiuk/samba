@@ -6,7 +6,9 @@ TODOs for multi-channel
   Questions: (==> torture tests)
   - are fields / create contexts of the replayed request
     checked against the original request?
+    ==> partly covered by tests
   - do differences lead to errors?
+    ==> partly covered by tests
   - what is used to compose the reply to the replayed create?
     original request or replayed requetst...
 
@@ -15,11 +17,11 @@ TODOs for multi-channel
   - original request has different access mask than replayed one
   - original request has different share mode than replated one
 
+
 - channel sequence number
   -----------------------
-  
-  - overflow handling ...
 
+  - overflow handling ...
 
 
 - preview-diff doc ms-smb2, june22:
@@ -47,7 +49,8 @@ TODOs for multi-channel
 - index for CreateGUID->smbXsrv_open entry to support create replay
 
 
-- oplock breaks:
+- oplock breaks (replay):
+  ----------------------
 
   when we send oplock/lease break,
   then we need to make sure that the client receives it.
@@ -78,20 +81,48 @@ TODOs for multi-channel
 
 
 - interface characteristics:
+  --------------------------
+
   how to do it?
   - ethtool-like for linux
+    ==> DONE
   - bsd/solaris
   - smb.conf option (interfaces = IP:bw)
-  - clustering/ctdb: MC addresses should not be ctdb public addresses
-    for clustering = yes, each IF should have a static IP address in addition
+    ==> DONE
+
+- clustering/ctdb:
+  ---------------
+
+  - MC addresses should not be ctdb public addresses
+  - for clustering = yes, each IF should have a static IP address in addition
     to the public ones, only the static ones would get listed in the
     query interfaces response.
+
+  - QUESTIONS:
+
+    - what happens if an initial connection is made through a
+      ctdb public address, and then a network interface info
+      ioctl is received? --> only reply with the single
+      public address for this? and only give more addresses
+      in the ioctl reply if the initial request was done
+      through a static address?
+      ==> doesn't this invalidate the ctdb clustering concept to an extend?
+
+    - What happens if a session bind is done on a connection
+      that was NOT provided as part of a query network interface info
+      response? If this is allowed, we have a fundamental problem
+      because clients can try to bind to any address that belongs
+      to the node, or even to the cluster.
+      ==> danger of node-spanning MC-sessions
+
+
 
 - session bind vs. previous_session_id:
   doc (3.3.5.5 and 3.3.5.5.3) seems to imply
   that session reconnect at session bind is OK
 
   TODO: verify
+
 
 tests:
 
