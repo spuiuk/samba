@@ -134,11 +134,6 @@ interface smbXsrv
 		 */
 		[ignore] struct smbXsrv_open_table	*open_table;
 
-		/*
-		 * For now this is only one connection!
-		 * With multi-channel support we'll get more than
-		 * one in future.
-		 */
 		[ignore] struct smbXsrv_connection	*connections;
 		boolean8		server_multi_channel_enabled;
 	} smbXsrv_client;
