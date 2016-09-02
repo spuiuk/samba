@@ -32,6 +32,8 @@
 #include "auth.h"
 #include "lib/crypto/sha512.h"
 #include "lib/tevent_wait.h"
+#include <sys/ioctl.h>
+#include <linux/sockios.h>
 
 #undef DBGC_CLASS
 #define DBGC_CLASS DBGC_SMB2
@@ -3694,18 +3696,26 @@ static NTSTATUS smbd_smb2_check_ack_queue(struct smbXsrv_connection *xconn)
 	while (xconn->smb2.ack_queue != NULL) {
 		struct smbd_smb2_send_queue *e = xconn->smb2.ack_queue;
 		struct tcp_info info;
+		uint32_t value;
 		socklen_t ilen = sizeof(info);
 		int ret;
+
+		ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value);
+		if (ret == 0) {
+			DEBUG(10, ("%s:%s: SIOCOUTQ value is: %d\n",
+				__location__, __func__,
+				value));
+		}
 
 		ret = getsockopt(xconn->transport.sock, IPPROTO_TCP,
 				 TCP_INFO, (void *)&info, &ilen);
 		if (ret != 0) {
-			DEBUG(0,("%s:%s: errno[%d/%s]\n",
+			DEBUG(10,("%s:%s: errno[%d/%s]\n",
 			      __location__, __func__,
 			      errno, strerror(errno)));
 			ZERO_STRUCT(info);
 		} else {
-			DEBUG(0,("%s:%s: unacked[%u] sacked[%u]\n",
+			DEBUG(10,("%s:%s: unacked[%u] sacked[%u]\n",
 			      __location__, __func__,
 			      (unsigned)info.tcpi_unacked,
 			      (unsigned)info.tcpi_sacked));
@@ -3739,6 +3749,7 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 	while (xconn->smb2.send_queue != NULL) {
 		struct smbd_smb2_send_queue *e = xconn->smb2.send_queue;
 		bool ok;
+		uint32_t value1, value2;
 
 		if (e->sendfile_header != NULL) {
 			size_t size = 0;
@@ -3808,13 +3819,23 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 
 			e->ack.started = true;
 			e->ack.seqnum = info.tcpi_sacked + iov_buflen(e->vector, e->count);
+
+			ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value1);
+			if (ret == 0) {
+				DEBUG(0, ("%s:%s: before write SIOCOUTQ value is: %d\n",
+					__location__, __func__,
+					value1));
+			}
 		}
+
 
 		ret = writev(xconn->transport.sock, e->vector, e->count);
 		if (ret == 0) {
 			/* propagate end of file */
 			return NT_STATUS_INTERNAL_ERROR;
 		}
+		DEBUG(10,("%d bytes written\n", ret));
+
 		err = socket_error_from_errno(ret, errno, &retry);
 		if (retry) {
 			/* retry later */
@@ -3830,6 +3851,16 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			return NT_STATUS_INTERNAL_ERROR;
 		}
 
+		if (e->ack.req != NULL && e->ack.started) {
+			int _ret;
+			_ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value2);
+			if (_ret == 0) {
+				DEBUG(0, ("%s:%s:  after write SIOCOUTQ value is: %d\n",
+					__location__, __func__,
+					value2));
+			}
+		}
+
 		if (e->count > 0) {
 			/* we have more to write */
 			TEVENT_FD_WRITEABLE(xconn->transport.fde);
@@ -3842,10 +3873,12 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 
 		xconn->smb2.send_queue_len--;
 		DLIST_REMOVE(xconn->smb2.send_queue, e);
+
 		if (e->ack.req != NULL && e->ack.started) {
 			DLIST_ADD_END(xconn->smb2.ack_queue, e);
 			continue;
 		}
+
 		talloc_free(e->mem_ctx);
 	}
 
