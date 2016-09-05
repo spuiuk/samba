@@ -3724,6 +3724,33 @@ static NTSTATUS smbd_smb2_check_ack_queue(struct smbXsrv_connection *xconn)
 		DLIST_REMOVE(xconn->smb2.ack_queue, e);
 		//e->ack.seqnum >=info.tcpi_sacked + iov_buflen(e->vector, e->count);
 		tevent_wait_done(e->ack.req);
+
+		//
+		// gd / obnox --- oplock break : try resending if no ack...
+		//
+		// somewhere here -- or elsewhere ...
+		//
+		// - if timed out
+		// - smbd_smb2_send_queue-element e:
+		//   --> contains (raw) packet.
+		//   --> extract session_id ?!
+		//       - look for session in xconn
+		// 	   smb2srv_session_lookup_conn(xconn, session_id, now, &session);
+		//    -  session->channels = list of channels
+		//    -  mark this xconn transport 'bad'
+		//       (receiving data on bad conn resets bad flag to false)
+		//    -  resend packet on remaining channel if any:
+		//        put e into send_queue other xconn from channel list
+		//        (DLIST_ADD_END(other-xconn->send_queue, e))
+		//        Q: need to modify any flags in the smb2 header?
+		//
+		//  Q/TODO:
+		//   - todo: implement timer
+		//   - Q:    how to really detect bad channel
+		//           (arithmetic with written data and SIOCOUTQ counter)
+		//   - Q: what the heck does tevent_wait_done() etc do?
+		//
+
 	}
 
 	return NT_STATUS_OK;
