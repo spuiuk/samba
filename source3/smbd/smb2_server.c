@@ -3266,24 +3266,15 @@ struct smbd_smb2_send_break_state {
 	uint8_t body[1];
 };
 
-static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
-{
-	struct smbd_smb2_send_break_state *state =
-		tevent_req_callback_data(ack_req,
-		struct smbd_smb2_send_break_state);
+static void smbd_smb2_send_break_done(struct tevent_req *ack_req);
 
-	tevent_wait_recv(ack_req);
-	TALLOC_FREE(ack_req);
-
-	TALLOC_FREE(state);
-}
-
-static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
+static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     const uint8_t *body,
 				     size_t body_len)
 {
+	struct smbXsrv_connection *xconn = NULL;
 	struct smbd_smb2_send_break_state *state;
 	bool do_encryption = false;
 	uint64_t session_wire_id = 0;
@@ -3304,7 +3295,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	statelen = offsetof(struct smbd_smb2_send_break_state, body) +
 		body_len;
 
-	state = talloc_zero_size(xconn, statelen);
+	state = talloc_zero_size(client, statelen);
 	if (state == NULL) {
 		return NT_STATUS_NO_MEMORY;
 	}
@@ -3389,6 +3380,9 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		}
 	}
 
+	// TODO: which channel should be used???
+	xconn = client->connections;
+
 	state->queue_entry.mem_ctx = state;
 	state->queue_entry.vector = state->vector;
 	state->queue_entry.count = ARRAY_SIZE(state->vector);
@@ -3399,6 +3393,9 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	tevent_req_set_callback(state->queue_entry.ack.req,
 				smbd_smb2_send_break_done,
 				state);
+	tevent_req_set_endtime(state->queue_entry.ack.req,
+			       xconn->ev_ctx,
+			       timeval_zero() /* FIXME */);
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
 
@@ -3408,6 +3405,23 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	return NT_STATUS_OK;
+}
+
+static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
+{
+	struct smbd_smb2_send_break_state *state =
+		tevent_req_callback_data(ack_req,
+		struct smbd_smb2_send_break_state);
+
+	tevent_wait_recv(ack_req);
+	TALLOC_FREE(ack_req);
+
+	//TODO: check for errors on the used channel
+	// On timeout we need to recheck the queue
+	// => should we disconnect the channel if the ack is
+	// not completed in time
+	// TODO: retry on a remaining channel
+	TALLOC_FREE(state);
 }
 
 NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
@@ -3693,66 +3707,42 @@ static int socket_error_from_errno(int ret,
 
 static NTSTATUS smbd_smb2_check_ack_queue(struct smbXsrv_connection *xconn)
 {
-	while (xconn->smb2.ack_queue != NULL) {
-		struct smbd_smb2_send_queue *e = xconn->smb2.ack_queue;
-		struct tcp_info info;
-		uint32_t value;
-		socklen_t ilen = sizeof(info);
-		int ret;
+	struct smbd_smb2_send_queue *cur = NULL;
+	struct smbd_smb2_send_queue *next = NULL;
+	int value;
+	int ret;
+	uint64_t acked_byte;
 
-		ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value);
-		if (ret == 0) {
-			DEBUG(10, ("%s:%s: SIOCOUTQ value is: %d\n",
-				__location__, __func__,
-				value));
-		}
-
-		ret = getsockopt(xconn->transport.sock, IPPROTO_TCP,
-				 TCP_INFO, (void *)&info, &ilen);
-		if (ret != 0) {
-			DEBUG(10,("%s:%s: errno[%d/%s]\n",
-			      __location__, __func__,
-			      errno, strerror(errno)));
-			ZERO_STRUCT(info);
-		} else {
-			DEBUG(10,("%s:%s: unacked[%u] sacked[%u]\n",
-			      __location__, __func__,
-			      (unsigned)info.tcpi_unacked,
-			      (unsigned)info.tcpi_sacked));
-		}
-
-		DLIST_REMOVE(xconn->smb2.ack_queue, e);
-		//e->ack.seqnum >=info.tcpi_sacked + iov_buflen(e->vector, e->count);
-		tevent_wait_done(e->ack.req);
-
-		//
-		// gd / obnox --- oplock break : try resending if no ack...
-		//
-		// somewhere here -- or elsewhere ...
-		//
-		// - if timed out
-		// - smbd_smb2_send_queue-element e:
-		//   --> contains (raw) packet.
-		//   --> extract session_id ?!
-		//       - look for session in xconn
-		// 	   smb2srv_session_lookup_conn(xconn, session_id, now, &session);
-		//    -  session->channels = list of channels
-		//    -  mark this xconn transport 'bad'
-		//       (receiving data on bad conn resets bad flag to false)
-		//    -  resend packet on remaining channel if any:
-		//        put e into send_queue other xconn from channel list
-		//        (DLIST_ADD_END(other-xconn->send_queue, e))
-		//        Q: need to modify any flags in the smb2 header?
-		//
-		//  Q/TODO:
-		//   - todo: implement timer
-		//   - Q:    how to really detect bad channel
-		//           (arithmetic with written data and SIOCOUTQ counter)
-		//   - Q: what the heck does tevent_wait_done() etc do?
-		//
-
+	ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value);
+	if (ret != 0) {
+		return NT_STATUS_FOOBAR;
 	}
 
+	// check for underflow?
+	acked_byte = xconn->smb2.sent_bytes - value;
+
+	DEBUG(10, ("%s:%s: SIOCOUTQ value is: %d\n",
+		__location__, __func__,
+		value));
+
+	for (cur = xconn->smb2.ack_queue; cur != NULL; cur = next) {
+		next = cur->next;
+
+		if (cur->ack.last_byte > acked_byte) {
+			/*
+			 * The ack_queue is ordered, if the first
+			 * one isn't acked none is acked.
+			 */
+			break;
+		}
+
+		DLIST_REMOVE(xconn->smb2.ack_queue, cur);	
+		tevent_wait_done(cur->ack.req);
+	}
+
+	//TODO: reset xconn->smb2.sent_bytes if queue is empty
+	// and > INT64_MAX?
+	// or always adjust when we acked anything...
 	return NT_STATUS_OK;
 }
 
@@ -3763,12 +3753,12 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 	bool retry;
 	NTSTATUS status;
 
-	status = smbd_smb2_check_ack_queue(xconn);
-	if (!NT_STATUS_IS_OK(status)) {
-		return status;
-	}
-
 	if (xconn->smb2.send_queue == NULL) {
+		status = smbd_smb2_check_ack_queue(xconn);
+		if (!NT_STATUS_IS_OK(status)) {
+			return status;
+		}
+
 		TEVENT_FD_NOT_WRITEABLE(xconn->transport.fde);
 		return NT_STATUS_OK;
 	}
@@ -3776,7 +3766,7 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 	while (xconn->smb2.send_queue != NULL) {
 		struct smbd_smb2_send_queue *e = xconn->smb2.send_queue;
 		bool ok;
-		uint32_t value1, value2;
+		//int value1, value2;
 
 		if (e->sendfile_header != NULL) {
 			size_t size = 0;
@@ -3826,6 +3816,7 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			continue;
 		}
 
+#if 0
 		if (e->ack.req != NULL && !e->ack.started) {
 			struct tcp_info info;
 			socklen_t ilen = sizeof(info);
@@ -3854,7 +3845,7 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 					value1));
 			}
 		}
-
+#endif
 
 		ret = writev(xconn->transport.sock, e->vector, e->count);
 		if (ret == 0) {
@@ -3873,19 +3864,11 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			return map_nt_error_from_unix_common(err);
 		}
 
+		xconn->smb2.sent_bytes += ret;
+
 		ok = iov_advance(&e->vector, &e->count, ret);
 		if (!ok) {
 			return NT_STATUS_INTERNAL_ERROR;
-		}
-
-		if (e->ack.req != NULL && e->ack.started) {
-			int _ret;
-			_ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value2);
-			if (_ret == 0) {
-				DEBUG(0, ("%s:%s:  after write SIOCOUTQ value is: %d\n",
-					__location__, __func__,
-					value2));
-			}
 		}
 
 		if (e->count > 0) {
@@ -3894,14 +3877,11 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			return NT_STATUS_OK;
 		}
 
-		if (e->ack.req != NULL && e->ack.started) {
-			tevent_wait_done(e->ack.req);
-		}
-
 		xconn->smb2.send_queue_len--;
 		DLIST_REMOVE(xconn->smb2.send_queue, e);
 
-		if (e->ack.req != NULL && e->ack.started) {
+		if (e->ack.req != NULL) {
+			e->ack.last_byte = xconn->smb2.sent_bytes;
 			DLIST_ADD_END(xconn->smb2.ack_queue, e);
 			continue;
 		}
@@ -3987,6 +3967,11 @@ again:
 	}
 	if (err != 0) {
 		return map_nt_error_from_unix_common(err);
+	}
+
+	status = smbd_smb2_check_ack_queue(xconn);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
 	}
 
 	if (ret < state->vector.iov_len) {
