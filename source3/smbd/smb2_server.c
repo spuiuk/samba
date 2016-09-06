@@ -3424,7 +3424,7 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	TALLOC_FREE(state);
 }
 
-NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
+NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_client *client,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     struct smbXsrv_open *op,
@@ -3439,10 +3439,10 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 	SBVAL(body, 0x08, op->global->open_persistent_id);
 	SBVAL(body, 0x10, op->global->open_volatile_id);
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(client, NULL, NULL, body, sizeof(body));
 }
 
-NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
+NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_client *client,
 				    uint16_t new_epoch,
 				    uint32_t lease_flags,
 				    struct smb2_lease_key *lease_key,
@@ -3462,7 +3462,7 @@ NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 	SIVAL(body, 0x24, 0);		/* AccessMaskHint, MUST be 0 */
 	SIVAL(body, 0x28, 0);		/* ShareMaskHint, MUST be 0 */
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(client, NULL, NULL, body, sizeof(body));
 }
 
 static bool is_smb2_recvfile_write(struct smbd_smb2_request_read_state *state)

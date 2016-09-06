@@ -443,7 +443,7 @@ void send_break_message_smb2(files_struct *fsp,
 			     uint32_t break_to)
 {
 	NTSTATUS status;
-	struct smbXsrv_connection *xconn = NULL;
+	struct smbXsrv_client *client = NULL;
 	struct smbXsrv_session *session = NULL;
 	struct timeval tv = timeval_current();
 	NTTIME now = timeval_to_nttime(&tv);
@@ -453,9 +453,9 @@ void send_break_message_smb2(files_struct *fsp,
 	 * to find the correct connection for a break message.
 	 * Then we also need some retries if a channel gets disconnected.
 	 */
-	xconn = fsp->conn->sconn->client->connections;
+	client = fsp->conn->sconn->client;
 
-	status = smb2srv_session_lookup_conn(xconn,
+	status = smb2srv_session_lookup_conn(client->connections,
 					     fsp->vuid,
 					     now,
 					     &session);
@@ -492,21 +492,21 @@ void send_break_message_smb2(files_struct *fsp,
 			new_epoch = 0;
 		}
 
-		status = smbd_smb2_send_lease_break(xconn, new_epoch, break_flags,
+		status = smbd_smb2_send_lease_break(client, new_epoch, break_flags,
 						    &fsp->lease->lease.lease_key,
 						    break_from, break_to);
 	} else {
 		uint8_t smb2_oplock_level;
 		smb2_oplock_level = (break_to & SMB2_LEASE_READ) ?
 			SMB2_OPLOCK_LEVEL_II : SMB2_OPLOCK_LEVEL_NONE;
-		status = smbd_smb2_send_oplock_break(xconn,
+		status = smbd_smb2_send_oplock_break(client,
 						     session,
 						     fsp->conn->tcon,
 						     fsp->op,
 						     smb2_oplock_level);
 	}
 	if (!NT_STATUS_IS_OK(status)) {
-		smbd_server_connection_terminate(xconn,
+		smbd_server_connection_terminate(client->connections,
 						 nt_errstr(status));
 		return;
 	}
