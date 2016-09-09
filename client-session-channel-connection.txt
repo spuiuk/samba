@@ -1,0 +1,8 @@
+// client--> connections (unsortiert)
+//       \--> sessions
+//            "session['id']"
+//                    \-> channels: die an diese session gebundenen connections
+//                        channel[0]:
+//                               \---> connection
+//                        channel[1]:
+//                               \---> connection

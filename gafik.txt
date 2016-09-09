@@ -1,0 +1,17 @@
+                      (left the host)
+              +------ acked_byte        +---sent_bytes
+              |                         |
+	      v                         v 
++++++++++++++++++++++++++++++++++++++++++
+|p1-----|p2------|p3-----|p4------|-----|
+       ^                ^
+       |                |
+       |                +-----p3.ack.last_byte
+       |
+       +--- p1.ack.last_byte
+
+
+
+
+break req | break req | create reply | write reply | break req | close reply
+
