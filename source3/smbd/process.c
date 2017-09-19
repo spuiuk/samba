@@ -3879,7 +3879,8 @@ NTSTATUS smbd_add_connection(struct smbXsrv_client *client, int sock_fd,
 	}
 
 	/* for now we only have one connection */
-	DLIST_ADD_END(client->connections, xconn);
+	DLIST_ADD(client->connections, xconn);
+	//DLIST_ADD_END(client->connections, xconn);
 	xconn->client = client;
 	talloc_steal(client, xconn);
 

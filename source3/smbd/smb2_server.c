@@ -3880,7 +3880,7 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 		xconn->smb2.send_queue_len--;
 		DLIST_REMOVE(xconn->smb2.send_queue, e);
 
-		if (e->ack.req != NULL) {
+		if (0 && e->ack.req != NULL) {
 			e->ack.last_byte = xconn->smb2.sent_bytes;
 			DLIST_ADD_END(xconn->smb2.ack_queue, e);
 			continue;
