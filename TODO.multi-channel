@@ -164,3 +164,15 @@ tests:
   - create channel in child
   - (only possibly problematic if using encryption,
      could give each connection/client nonce offset)
+
+
+-----------------------------------------------------------
+
+-2 clients (with different client GUIDs)
+ client1 -> channel A
+ client2 -> channel A,B
+ 2A open -> file1
+ 2B open -> file2
+ 1A opens file1 batchoplock
+ 1A opens file2 batchoplock
+
