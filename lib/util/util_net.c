@@ -1042,7 +1042,7 @@ static const smb_socket_option socket_options[] = {
  Print socket options.
 ****************************************************************************/
 
-static void print_socket_options(int s)
+void print_socket_options(int s)
 {
 	int value;
 	socklen_t vlen = 4;

@@ -111,5 +111,6 @@ int get_socket_port(int fd);
 const char *client_socket_addr(int fd, char *addr, size_t addr_len);
 
 void set_socket_options(int fd, const char *options);
+void print_socket_options(int fd);
 
 #endif /* _SAMBA_UTIL_NET_H_ */

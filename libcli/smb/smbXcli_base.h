@@ -53,6 +53,7 @@ bool smbXcli_conn_signing_mandatory(struct smbXcli_conn *conn);
 bool smbXcli_conn_support_passthrough(struct smbXcli_conn *conn);
 
 void smbXcli_conn_set_sockopt(struct smbXcli_conn *conn, const char *options);
+void smbXcli_conn_print_sockopt(struct smbXcli_conn *conn);
 const struct sockaddr_storage *smbXcli_conn_local_sockaddr(struct smbXcli_conn *conn);
 const struct sockaddr_storage *smbXcli_conn_remote_sockaddr(struct smbXcli_conn *conn);
 const char *smbXcli_conn_remote_name(struct smbXcli_conn *conn);
