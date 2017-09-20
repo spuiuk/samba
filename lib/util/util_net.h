@@ -124,5 +124,9 @@ int get_socket_port(int fd);
 const char *client_socket_addr(int fd, char *addr, size_t addr_len);
 
 void set_socket_options(int fd, const char *options);
+void set_socket_options_keepalive(int sock_fd,
+				  int keepalive_idle_time,
+				  int keepalive_count,
+				  int keepalive_interval);
 
 #endif /* _SAMBA_UTIL_NET_H_ */
