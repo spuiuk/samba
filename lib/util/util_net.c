@@ -1133,3 +1133,40 @@ void set_socket_options(int fd, const char *options)
 	TALLOC_FREE(ctx);
 	print_socket_options(fd);
 }
+
+#define SET_SOCK_OPT(_fd, _name, _value) do { \
+	char _val[100]; \
+	snprintf(_val, sizeof(_val) - 1, #_name "=%d", _value); \
+	set_socket_options(sock_fd, _val); \
+} while(0)
+
+void set_socket_options_keepalive(int sock_fd,
+				  int keepalive_idle_time,
+				  int keepalive_count,
+				  int keepalive_interval)
+{
+	DBG_DEBUG("Setting TCP keepalive: idle %d, count: %d, interval: %d\n",
+		  keepalive_idle_time, keepalive_count, keepalive_interval);
+
+	set_socket_options(sock_fd, "SO_KEEPALIVE");
+#ifdef TCP_KEEPIDLE
+	SET_SOCK_OPT(sock_fd, TCP_KEEPIDLE,
+		     keepalive_idle_time);
+#endif
+#ifdef TCP_KEEPCNT
+	SET_SOCK_OPT(sock_fd, TCP_KEEPCNT,
+		     keepalive_count);
+#endif
+#ifdef TCP_KEEPINTVL
+	SET_SOCK_OPT(sock_fd, TCP_KEEPINTVL,
+		     keepalive_interval);
+#endif
+#ifdef TCP_KEEPALIVE_THRESHOLD
+	SET_SOCK_OPT(sock_fd, TCP_KEEPALIVE_THRESHOLD,
+		     keepalive_idle_time * 1000);
+#endif
+#ifdef TCP_KEEPALIVE_ABORT_THRESHOLD
+	SET_SOCK_OPT(sock_fd, TCP_KEEPALIVE_ABORT_THRESHOLD,
+		     keepalive_idle_time * 1000);
+#endif
+}
