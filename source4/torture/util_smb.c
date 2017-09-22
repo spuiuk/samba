@@ -967,3 +967,11 @@ NTSTATUS torture_check_privilege(struct smbcli_state *cli,
 
 	return smblsa_sid_check_privilege(cli, sid_str, privilege);
 }
+
+void torture_sleep(struct torture_context *tctx,
+		   int sleep_seconds)
+{
+	torture_comment(tctx, "Sleeping for %d seconds\n", sleep_seconds);
+
+	smb_msleep(sleep_seconds * 1000);
+}
