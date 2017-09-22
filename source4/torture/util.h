@@ -107,5 +107,7 @@ NTSTATUS torture_check_privilege(struct smbcli_state *cli,
 				 const char *sid_str,
 				 const char *privilege);
 
+void torture_sleep(struct torture_context *tctx,
+		   int sleep_seconds);
 
 #endif /* _TORTURE_UTIL_H_ */
