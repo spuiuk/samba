@@ -367,7 +367,7 @@ def ctags(ctx):
     "build 'tags' file using ctags"
     from waflib import Utils
     source_root = os.path.dirname(Context.g_module.root_path)
-    cmd = 'ctags --python-kinds=-i $(find %s -name "*.[ch]" | grep -v "*_proto\.h" | egrep -v \.inst\.) $(find %s -name "*.py")' % (source_root, source_root)
+    cmd = 'ctags --python-kinds=-i $(git ls-files "*.[ch]" | grep -v "*_proto\.h" | egrep -v \.inst\.) $(find %s -name "*.py") $(find %s/bin/default/ -name "*[.ch]")' % (source_root, source_root)
     print("Running: %s" % cmd)
     status = os.system(cmd)
     if os.WEXITSTATUS(status):
