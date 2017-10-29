@@ -219,3 +219,48 @@ default settings:
 retries	| 1 2 3 4  5  6
 seconds	| 1 3 7 15 31 63
           1 2 4 8  16 32
+
+-----------------------------------------------------------
+
+[MS-SMB2]
+Footnote 157 explains semantics to choose MC interface from a list of interfaces
+
+<157> Section 3.2.5.5: Windows-based SMB2 clients will choose the interfaces
+using the following
+criteria:
+1. Skip the interfaces in NETWORK_INTERFACE_INFO Response where IfIndex is 0.
+2. For each interface returned in NETWORK_INTERFACE_INFO Response, if the
+interface has both
+link-local and non-link-local IP addresses, skip the link-local IP address.
+3. If there is one or more multiple link-local addresses (suppose there are Y
+		such interfaces), select
+local interfaces which only have link-local addresses (suppose there are X such
+		local interfaces).
+4. Build a destination address list, include all server non-link-local addresses
+and X*Y server link-
+local addresses.
+5. For each RDMA capable address pair, duplicate the address pair, one for RDMA
+and one for Direct
+TCP.
+6. Sort address pairs by which address pair is best suited for connection
+between client and server.
+7. For each address pair, compute
+ Link speed of the pair = min( link speed of local interface, link speed of
+		remote interface)
+ RSS capable = RSS capable of local interface and RSS capable of remote
+interface
+8. If there are RDMA capable address pairs, select them.
+ Otherwise if there are RSS capable address pairs, select them.
+ Otherwise select remaining address pairs.
+9. Select the pairs with the highest link speed from the selected address pairs.
+10. Select local/remote address pairs so that all eligible local/remote
+interfaces are used and the
+connections are distributed among local and remote interfaces.
+11. The client attempts to establish an alternate channel on each selected
+interface and address pair.
+The client will create only a single connection per address pair when the server
+interface is neither
+RSS- nor RDMA-capable.
+
+-----------------------------------------------------------
+
