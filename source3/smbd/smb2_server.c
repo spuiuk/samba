@@ -3395,7 +3395,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 				state);
 	tevent_req_set_endtime(state->queue_entry.ack.req,
 			       xconn->ev_ctx,
-			       timeval_zero() /* FIXME */);
+			       timeval_current_ofs(OPLOCK_BREAK_TIMEOUT, 0));
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
 
