@@ -3268,6 +3268,26 @@ struct smbd_smb2_send_break_state {
 
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req);
 
+struct smbXsrv_connection *smb_get_latest_client_connection(struct smbXsrv_client *client)
+{
+	struct smbXsrv_connection *c;
+	int i = 0;
+
+	for (c = client->connections; c != NULL; c = c->next) {
+		const char *addr;
+		uint16_t port;
+
+		addr = tsocket_address_inet_addr_string(c->remote_address,
+				talloc_tos());
+		port = tsocket_address_inet_port(c->remote_address);
+
+		DEBUG(10,("smb_get_latest_client_connection: "
+			  "processing channel #%d: %s:%d\n", i++, addr, port));
+	}
+
+	return DLIST_TAIL(client->connections);
+}
+
 static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
