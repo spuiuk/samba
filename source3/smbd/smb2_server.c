@@ -3400,8 +3400,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 		}
 	}
 
-	// TODO: which channel should be used???
-	xconn = client->connections;
+	xconn = smb_get_latest_client_connection(client);
 
 	state->queue_entry.mem_ctx = state;
 	state->queue_entry.vector = state->vector;
