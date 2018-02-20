@@ -3420,6 +3420,10 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 		return NT_STATUS_INVALID_PARAMETER_MIX;
 	}
 
+	xconn = smb_get_latest_intact_client_connection(client);
+	if (!xconn)
+		return NT_STATUS_CONNECTION_DISCONNECTED;
+
 	if (do_encryption) {
 		DATA_BLOB encryption_key = session->global->encryption_key;
 
@@ -3431,8 +3435,6 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 			return status;
 		}
 	}
-
-	xconn = smb_get_latest_client_connection(client);
 
 	state->queue_entry.mem_ctx = state;
 	state->queue_entry.vector = state->vector;

@@ -457,7 +457,12 @@ void send_break_message_smb2(files_struct *fsp,
 
 	/* try to pick the last client */
 	client = fsp->conn->sconn->client;
-	xconn = smb_get_latest_client_connection(client);
+	xconn = smb_get_latest_intact_client_connection(client);
+	if (!xconn) {
+		DEBUG(1,("No valid channel available\n"));
+		return;
+	}
+
 
 	status = smb2srv_session_lookup_conn(xconn,
 					     fsp->vuid,
