@@ -955,3 +955,4 @@ extern struct smbXsrv_client *global_smbXsrv_client;
 
 void smbd_init_globals(void);
 struct smbXsrv_connection *smb_get_latest_client_connection(struct smbXsrv_client *client);
+struct smbXsrv_connection *smb_get_latest_intact_client_connection(struct smbXsrv_client *client);
