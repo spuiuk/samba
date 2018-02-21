@@ -417,6 +417,14 @@ static void lease_timeout_handler(struct tevent_context *ctx,
 
 	DEBUG(1, ("lease break timed out for file %s -- replying anyway\n",
 		  fsp_str_dbg(fsp)));
+
+	/*
+	 * TODO:
+	 *
+	 * we should only downgrade the lease when we know for sure that all
+	 * connections have failed
+	 */
+
 	(void)downgrade_lease(lease->sconn->client->connections,
 			1,
 			&fsp->file_id,
@@ -509,6 +517,7 @@ static void downgrade_lease_additional_trigger(struct tevent_context *ev,
 	struct smbXsrv_connection *xconn = state->xconn;
 	NTSTATUS status;
 
+	/* FIXME!!!!*/
 	status = smbd_smb2_send_lease_break(NULL, //xconn,
 					    state->new_epoch,
 					    state->break_flags,
