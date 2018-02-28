@@ -264,3 +264,85 @@ RSS- nor RDMA-capable.
 
 -----------------------------------------------------------
 
+https://blogs.technet.microsoft.com/josebda/2018/02/21/path-to-the-server-an-ode-to-smb-multichannel/
+
+Path to the Server (An Ode to SMB Multichannel)
+	★★★★★
+	★★★★
+	★★★
+	★★
+	★
+	avatar of jose-barreto-2JoseBarretoFebruary 21, 20180	
+
+	    1
+	        0
+
+		Read while listening to
+		https://www.youtube.com/watch?v=iXQUu5Dti4g 
+
+		 
+
+		Path to the Server
+		On Ode to SMB Multichannel
+		by Jose Barreto
+
+		 
+
+		There’s a client somewhere looking for file shares
+		And it’s finding a path to the server
+		When it gets there it knows it can read, write and close
+		With a word it can get what it came for
+
+		Ooh, ooh, and it’s finding a path to the server
+
+		DNS is involved, but it needs to resolve
+		‘Cause you know sometimes names have two IPs.
+		In a dim server room, there is an admin who says:
+		Sometimes not all our addresses are given.
+
+		Ooh, it makes me wonder,
+		Ooh, it makes me wonder.
+
+		There’s a feeling, a twitch, when I look at the switch,
+		And my clients are crying for bandwidth.
+		In my thoughts I have seen
+		packets route out and in,
+		And the voices of those who stand waiting.
+
+		Ooh, it makes me wonder,
+		Ooh, really makes me wonder.
+
+		And it’s whispered to me if on SMB 3
+		Then the prot’col will lead us to reason.
+		And a new day will dawn for those file servers
+		And the clients will echo with laughter.
+
+		If you see a few more connections,
+		Don’t be alarmed now,
+		It’s just some multichannel action.
+		Yes, there are two paths you can go by but if one’s gone
+		There’s still time to change the queue you’re on.
+
+		And it makes me wonder.
+		Ooooooh…
+
+		You server is humming, speed is twofold,
+		In case you don’t know:
+		You are now balancing your net load.
+
+		Dear client, you’re now multipathing,
+		And just one more thing:
+		You will recover when your network fails.
+
+		Now we can read and write much more,
+		Our bandwidth higher than before,
+		There goes the server we all know.
+		Who perform betters and wants to show
+		How everything’s still just a share
+		And if you look it really hard
+		You’ll see pieces that we shard.
+		When there are multiple of all you got,
+		You’ll see a fail but you won’t stop.
+
+		And it’s finding the path to… the server…
+
