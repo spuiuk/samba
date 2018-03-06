@@ -517,8 +517,7 @@ static void downgrade_lease_additional_trigger(struct tevent_context *ev,
 	struct smbXsrv_connection *xconn = state->xconn;
 	NTSTATUS status;
 
-	/* FIXME!!!!*/
-	status = smbd_smb2_send_lease_break(NULL, //xconn,
+	status = smbd_smb2_send_lease_break(xconn,
 					    state->new_epoch,
 					    state->break_flags,
 					    &state->lease_key,

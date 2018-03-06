@@ -3320,13 +3320,13 @@ struct smbXsrv_connection *smb_get_latest_client_connection(struct smbXsrv_clien
 	return DLIST_TAIL(client->connections);
 }
 
-static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
+static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     const uint8_t *body,
 				     size_t body_len)
 {
-	struct smbXsrv_connection *xconn = NULL;
+	struct smbXsrv_client *client = xconn->client;
 	struct smbd_smb2_send_break_state *state;
 	bool do_encryption = false;
 	uint64_t session_wire_id = 0;
@@ -3420,10 +3420,6 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 		return NT_STATUS_INVALID_PARAMETER_MIX;
 	}
 
-	xconn = smb_get_latest_intact_client_connection(client);
-	if (!xconn)
-		return NT_STATUS_CONNECTION_DISCONNECTED;
-
 	if (do_encryption) {
 		DATA_BLOB encryption_key = session->global->encryption_key;
 
@@ -3478,7 +3474,7 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	TALLOC_FREE(state);
 }
 
-NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_client *client,
+NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     struct smbXsrv_open *op,
@@ -3493,10 +3489,10 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_client *client,
 	SBVAL(body, 0x08, op->global->open_persistent_id);
 	SBVAL(body, 0x10, op->global->open_volatile_id);
 
-	return smbd_smb2_send_break(client, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
 }
 
-NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_client *client,
+NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 				    uint16_t new_epoch,
 				    uint32_t lease_flags,
 				    struct smb2_lease_key *lease_key,
@@ -3516,7 +3512,7 @@ NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_client *client,
 	SIVAL(body, 0x24, 0);		/* AccessMaskHint, MUST be 0 */
 	SIVAL(body, 0x28, 0);		/* ShareMaskHint, MUST be 0 */
 
-	return smbd_smb2_send_break(client, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
 }
 
 static bool is_smb2_recvfile_write(struct smbd_smb2_request_read_state *state)
