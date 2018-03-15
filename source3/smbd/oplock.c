@@ -904,7 +904,7 @@ static void oplock_timeout_handler(struct tevent_context *ctx,
  Add a timeout handler waiting for the client reply.
 *******************************************************************/
 
-static void add_oplock_timeout_handler(files_struct *fsp)
+static void add_oplock_timeout_handler(files_struct *fsp, uint32_t timeout)
 {
 	if (fsp->oplock_timeout != NULL) {
 		DEBUG(0, ("Logic problem -- have an oplock event hanging "
@@ -913,7 +913,7 @@ static void add_oplock_timeout_handler(files_struct *fsp)
 
 	fsp->oplock_timeout =
 		tevent_add_timer(fsp->conn->sconn->ev_ctx, fsp,
-				 timeval_current_ofs(OPLOCK_BREAK_TIMEOUT, 0),
+				 timeval_current_ofs(timeout, 0),
 				 oplock_timeout_handler, fsp);
 
 	if (fsp->oplock_timeout == NULL) {
@@ -1171,7 +1171,7 @@ static void process_oplock_break_message(struct messaging_context *msg_ctx,
 	fsp->sent_oplock_break = (break_to & SMB2_LEASE_READ) ?
 		LEVEL_II_BREAK_SENT:BREAK_TO_NONE_SENT;
 
-	add_oplock_timeout_handler(fsp);
+	add_oplock_timeout_handler(fsp, OPLOCK_BREAK_TIMEOUT);
 }
 
 /*******************************************************************
@@ -1233,7 +1233,7 @@ static void process_kernel_oplock_break(struct messaging_context *msg_ctx,
 
 	fsp->sent_oplock_break = BREAK_TO_NONE_SENT;
 
-	add_oplock_timeout_handler(fsp);
+	add_oplock_timeout_handler(fsp, OPLOCK_BREAK_TIMEOUT);
 }
 
 static bool file_has_read_oplocks(struct files_struct *fsp)
