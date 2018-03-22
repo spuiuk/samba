@@ -3256,18 +3256,6 @@ NTSTATUS smbd_smb2_request_error_ex(struct smbd_smb2_request *req,
 	return smbd_smb2_request_done_ex(req, status, body, info, __location__);
 }
 
-
-struct smbd_smb2_send_break_state {
-	struct smbd_smb2_send_queue queue_entry;
-	uint8_t nbt_hdr[NBT_HDR_SIZE];
-	uint8_t tf[SMB2_TF_HDR_SIZE];
-	uint8_t hdr[SMB2_HDR_BODY];
-	struct iovec vector[1+SMBD_SMB2_NUM_IOV_PER_REQ];
-	uint8_t body[1];
-};
-
-static void smbd_smb2_send_break_done(struct tevent_req *ack_req);
-
 struct smbXsrv_connection *smb_get_latest_intact_client_connection(struct smbXsrv_client *client)
 {
 	struct smbXsrv_connection *c = NULL;
@@ -3319,6 +3307,20 @@ struct smbXsrv_connection *smb_get_latest_client_connection(struct smbXsrv_clien
 
 	return DLIST_TAIL(client->connections);
 }
+
+struct smbd_smb2_send_break_state {
+	struct smbd_smb2_send_queue queue_entry;
+	struct smbXsrv_connection *xconn;
+	struct smbXsrv_session *session;
+	struct smbXsrv_tcon *tcon;
+	size_t body_len;
+	int num_retries;
+	uint8_t nbt_hdr[NBT_HDR_SIZE];
+	uint8_t tf[SMB2_TF_HDR_SIZE];
+	uint8_t hdr[SMB2_HDR_BODY];
+	struct iovec vector[1+SMBD_SMB2_NUM_IOV_PER_REQ];
+	uint8_t body[1];
+};
 
 static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xconn,
 						   struct smbXsrv_session *session,
@@ -3423,11 +3425,13 @@ static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xc
 	return NT_STATUS_OK;
 }
 
-static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
-				     struct smbXsrv_session *session,
-				     struct smbXsrv_tcon *tcon,
-				     const uint8_t *body,
-				     size_t body_len)
+static void smbd_smb2_send_break_done(struct tevent_req *ack_req);
+
+static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
+				      struct smbXsrv_session *session,
+				      struct smbXsrv_tcon *tcon,
+				      const uint8_t *body, size_t body_len,
+				      struct smbd_smb2_send_break_state **newstate)
 {
 	struct smbXsrv_client *client = xconn->client;
 	struct smbd_smb2_send_break_state *state;
@@ -3445,16 +3449,22 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	status = smbd_smb2_build_break_state_vector(xconn, session, tcon,
 						    body, body_len, state);
 	if (!NT_STATUS_IS_OK(status)) {
-		return status;
+		goto error;
 	}
 
 	state->queue_entry.mem_ctx = state;
+	state->xconn = xconn;
+	state->session = session;
+	state->tcon = tcon;
+	state->body_len = body_len;
+	state->num_retries = 0;
 	state->queue_entry.vector = state->vector;
 	state->queue_entry.count = ARRAY_SIZE(state->vector);
 	state->queue_entry.ack.req = tevent_wait_send(state,
 			xconn->client->raw_ev_ctx);
 	if (state->queue_entry.ack.req == NULL) {
-		return NT_STATUS_NO_MEMORY;
+		status = NT_STATUS_NO_MEMORY;
+		goto error;
 	}
 	tevent_req_set_callback(state->queue_entry.ack.req,
 				smbd_smb2_send_break_done,
@@ -3462,11 +3472,33 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	tevent_req_set_endtime(state->queue_entry.ack.req,
 			       xconn->client->raw_ev_ctx,
 			       timeval_current_ofs(OPLOCK_BREAK_TIMEOUT, 0));
+
+	*newstate = state;
+	return NT_STATUS_OK;
+error:
+	TALLOC_FREE(state);
+	return status;
+}
+
+static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
+				     struct smbXsrv_session *session,
+				     struct smbXsrv_tcon *tcon,
+				     const uint8_t *body, size_t body_len)
+{
+	NTSTATUS status;
+	struct smbd_smb2_send_break_state *state;
+
+	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len, &state);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
+	}
+
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
 
 	status = smbd_smb2_flush_send_queue(xconn);
 	if (!NT_STATUS_IS_OK(status)) {
+		TALLOC_FREE(state);
 		return status;
 	}
 
@@ -3475,18 +3507,51 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 {
+	NTSTATUS status;
 	struct smbd_smb2_send_break_state *state =
 		tevent_req_callback_data(ack_req,
 		struct smbd_smb2_send_break_state);
+	struct smbXsrv_connection *xconn;
+	struct smbd_smb2_send_break_state *newstate;
+	size_t statelen;
 
+	tevent_req_is_nterror(ack_req, &status);
+	DEBUG(1,("got this error: %s\n", nt_errstr(status)));
 	tevent_wait_recv(ack_req);
 	TALLOC_FREE(ack_req);
 
-	//TODO: check for errors on the used channel
-	// On timeout we need to recheck the queue
-	// => should we disconnect the channel if the ack is
-	// not completed in time
-	// TODO: retry on a remaining channel
+	if (!NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT))
+		goto done;
+
+	/* At the moment only do one retry */
+	if (state->num_retries >= 1)
+		goto done;
+
+	/* Handling NT_STATUS_IO_TIMEOUT */
+	xconn = state->xconn;
+	DLIST_REMOVE(xconn->smb2.ack_queue, &state->queue_entry);
+	xconn->transport.last_failure = timeval_current();
+
+	xconn = smb_get_latest_intact_client_connection(xconn->client);
+	if (!xconn) {
+		/* Todo: What to do when no more connections are available */
+		DEBUG(0, ("No more connections to retry\n"));
+		goto done;
+	}
+
+	status = _smbd_smb2_send_break(state->xconn, state->session,
+				       state->tcon,
+				       (const uint8_t *)&state->body,
+				       state->body_len, &newstate);
+	if (!NT_STATUS_IS_OK(status)) {
+		goto done;
+	}
+
+	newstate->num_retries = state->num_retries + 1;
+	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
+	xconn->smb2.send_queue_len++;
+	smbd_smb2_flush_send_queue(xconn);
+done:
 	TALLOC_FREE(state);
 }
 
