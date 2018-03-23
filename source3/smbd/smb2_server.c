@@ -3368,37 +3368,29 @@ struct smbd_smb2_send_break_state {
 	uint8_t body[1];
 };
 
-static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
-				     struct smbXsrv_session *session,
-				     struct smbXsrv_tcon *tcon,
-				     const uint8_t *body,
-				     size_t body_len)
+static NTSTATUS smbd_smb2_build_break_state_payload
+				(struct smbXsrv_connection *xconn,
+				 struct smbXsrv_session *session,
+				 struct smbXsrv_tcon *tcon,
+				 const uint8_t *body, size_t body_len,
+				 struct smbd_smb2_send_break_state *state)
 {
-	struct smbd_smb2_send_break_state *state;
 	bool do_encryption = false;
 	uint64_t session_wire_id = 0;
 	uint64_t nonce_high = 0;
 	uint64_t nonce_low = 0;
 	NTSTATUS status;
-	size_t statelen;
 	bool ok;
 
 	if (session != NULL) {
 		session_wire_id = session->global->session_wire_id;
-		do_encryption = session->global->encryption_flags & SMBXSRV_ENCRYPTION_DESIRED;
-		if (tcon->global->encryption_flags & SMBXSRV_ENCRYPTION_DESIRED) {
+		do_encryption = session->global->encryption_flags &
+						SMBXSRV_ENCRYPTION_DESIRED;
+		if (tcon->global->encryption_flags &
+				SMBXSRV_ENCRYPTION_DESIRED) {
 			do_encryption = true;
 		}
 	}
-
-	statelen = offsetof(struct smbd_smb2_send_break_state, body) +
-		body_len;
-
-	state = talloc_zero_size(xconn, statelen);
-	if (state == NULL) {
-		return NT_STATUS_NO_MEMORY;
-	}
-	talloc_set_name_const(state, "struct smbd_smb2_send_break_state");
 
 	if (do_encryption) {
 		status = smb2_get_new_nonce(session,
@@ -3478,6 +3470,34 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		if (!NT_STATUS_IS_OK(status)) {
 			return status;
 		}
+	}
+
+	return NT_STATUS_OK;
+}
+
+static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
+				     struct smbXsrv_session *session,
+				     struct smbXsrv_tcon *tcon,
+				     const uint8_t *body,
+				     size_t body_len)
+{
+	struct smbXsrv_client *client = xconn->client;
+	struct smbd_smb2_send_break_state *state;
+	NTSTATUS status;
+	size_t statelen;
+
+	statelen = offsetof(struct smbd_smb2_send_break_state, body)
+								+ body_len;
+	state = talloc_zero_size(client, statelen);
+	if (state == NULL) {
+		return NT_STATUS_NO_MEMORY;
+	}
+	talloc_set_name_const(state, "struct smbd_smb2_send_break_state");
+
+	status = smbd_smb2_build_break_state_payload(xconn, session, tcon,
+						    body, body_len, state);
+	if (!NT_STATUS_IS_OK(status)) {
+		return status;
 	}
 
 	state->queue_entry.mem_ctx = state;
