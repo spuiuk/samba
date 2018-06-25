@@ -3439,7 +3439,8 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 	state->queue_entry.mem_ctx = state;
 	state->queue_entry.vector = state->vector;
 	state->queue_entry.count = ARRAY_SIZE(state->vector);
-	state->queue_entry.ack.req = tevent_wait_send(state, xconn->ev_ctx);
+	state->queue_entry.ack.req = tevent_wait_send(state,
+			xconn->client->raw_ev_ctx);
 	if (state->queue_entry.ack.req == NULL) {
 		return NT_STATUS_NO_MEMORY;
 	}
@@ -3447,7 +3448,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_client *client,
 				smbd_smb2_send_break_done,
 				state);
 	tevent_req_set_endtime(state->queue_entry.ack.req,
-			       xconn->ev_ctx,
+			       xconn->client->raw_ev_ctx,
 			       timeval_current_ofs(OPLOCK_BREAK_TIMEOUT, 0));
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
