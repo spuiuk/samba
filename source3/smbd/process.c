@@ -3721,6 +3721,7 @@ NTSTATUS smbd_add_connection(struct smbXsrv_client *client, int sock_fd,
 	xconn->transport.sock = sock_fd;
 	smbd_echo_init(xconn);
 	xconn->protocol = PROTOCOL_NONE;
+	xconn->transport.last_failure = timeval_zero();
 
 	/* Ensure child is set to blocking mode */
 	set_blocking(sock_fd,True);

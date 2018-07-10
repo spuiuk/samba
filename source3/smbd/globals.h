@@ -382,6 +382,7 @@ struct smbXsrv_connection {
 		struct {
 			bool got_session;
 		} nbt;
+		struct timeval last_failure;
 	} transport;
 
 	struct {
