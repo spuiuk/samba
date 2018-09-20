@@ -2923,6 +2923,15 @@ static bool test_replay(struct torture_context *torture,
 
 	if (!TARGET_IS_SAMBA3(torture)) {
 
+		/*
+		 * Only do this initial check if the server is not Samba.
+		 * Samba does lock checking also for non-resilient and
+		 * non-persistent file handles.
+		 *
+		 * This verifies Windows behavior of NOT performing
+		 * lock sequence checks on non-resilient, non-persistent
+		 * handles.
+		 */
 
 		torture_comment(torture, "Testing Lock Replay detection [ignored]:\n");
 		lck.in.lock_sequence = 0x010 + 0x1;
