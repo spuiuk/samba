@@ -2892,6 +2892,14 @@ static bool test_replay(struct torture_context *torture,
 				required for Lock Replay tests\n");
 	}
 
+	if (TARGET_IS_SAMBA3(torture)) {
+		if (smbXcli_conn_protocol(transport->conn) < PROTOCOL_SMB2_22) {
+			torture_skip(torture, "SMB 2.22 Dialect family or above \
+					required for Lock Replay tests against \
+					Samba\n");
+		}
+	}
+
 	status = torture_smb2_testdir(tree, BASEDIR, &h);
 	CHECK_STATUS(status, NT_STATUS_OK);
 	smb2_util_close(tree, h);
@@ -2913,16 +2921,8 @@ static bool test_replay(struct torture_context *torture,
 		.in.file.handle	= h
 	};
 
-	if (TARGET_IS_SAMBA3(torture)) {
+	if (!TARGET_IS_SAMBA3(torture)) {
 
-		if (smbXcli_conn_protocol(transport->conn) < PROTOCOL_SMB2_22) {
-			torture_warning(torture, "SMB 2.22 Dialect family or above \
-					required for Lock Replay tests against \
-					Samba\n");
-			goto done;
-		}
-
-	} else {
 
 		torture_comment(torture, "Testing Lock Replay detection [ignored]:\n");
 		lck.in.lock_sequence = 0x010 + 0x1;
