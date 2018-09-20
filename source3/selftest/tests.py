@@ -580,8 +580,8 @@ for t in tests:
         plansmbtorture4testsuite(t, "nt4_dc", '//$SERVER_IP/tmp -U$USERNAME%$PASSWORD')
         plansmbtorture4testsuite(t, "ad_dc", '//$SERVER/tmp -U$USERNAME%$PASSWORD')
     elif t == "smb2.lock":
-        plansmbtorture4testsuite(t, "nt4_dc", '//$SERVER_IP/aio -U$USERNAME%$PASSWORD', 'aio')
-        plansmbtorture4testsuite(t, "nt4_dc", '//$SERVER_IP/tmp -U$USERNAME%$PASSWORD')
+        plansmbtorture4testsuite(t, "nt4_dc_multichannel", '//$SERVER_IP/aio -U$USERNAME%$PASSWORD', 'aio')
+        plansmbtorture4testsuite(t, "nt4_dc_multichannel", '//$SERVER_IP/tmp -U$USERNAME%$PASSWORD')
     elif t == "raw.lock" or t == "base.lock":
         plansmbtorture4testsuite(t, "nt4_dc", '//$SERVER_IP/tmp -U$USERNAME%$PASSWORD')
     elif t == "raw.read":
