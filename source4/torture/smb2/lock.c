@@ -2961,10 +2961,9 @@ static bool test_replay(struct torture_context *torture,
 		.in.out.length = sizeof(res_req)
 	};
 	status = smb2_ioctl(tree, torture, &ioctl);
-	if (NT_STATUS_EQUAL(status, NT_STATUS_INVALID_DEVICE_REQUEST)) {
-		torture_warning(torture, "Server does not support "
-					 "Resilient File Handles");
-	} else {
+	if (!(TARGET_IS_SAMBA3(torture) &&
+	      NT_STATUS_EQUAL(status, NT_STATUS_INVALID_DEVICE_REQUEST)))
+	{
 		CHECK_STATUS(status, NT_STATUS_OK);
 	}
 
