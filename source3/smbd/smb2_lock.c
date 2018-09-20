@@ -246,9 +246,14 @@ static struct tevent_req *smbd_smb2_lock_send(TALLOC_CTX *mem_ctx,
 	 * - protocol dialect 3.x.
 	 *
 	 * TODO: What about other handles using multi-channel?
+	 *
+	 * For now, we enable lock sequence checking for
+	 * SMB3 and newer when multi-channel is enabled.
 	 */
 	if (smb2req->xconn->protocol >= PROTOCOL_SMB2_22) {
-		check_lock_sequence = true;
+		if (lp_server_multi_channel_support()) {
+			check_lock_sequence = true;
+		}
 	}
 
 	if (check_lock_sequence) {
