@@ -2893,11 +2893,22 @@ static bool test_replay(struct torture_context *torture,
 	}
 
 	if (TARGET_IS_SAMBA3(torture)) {
+		uint32_t server_capabilities;
+
 		if (smbXcli_conn_protocol(transport->conn) < PROTOCOL_SMB2_22) {
 			torture_skip(torture, "SMB 2.22 Dialect family or above \
 					required for Lock Replay tests against \
 					Samba\n");
 		}
+
+		server_capabilities = smb2cli_conn_server_capabilities(
+						tree->session->transport->conn);
+		if (!(server_capabilities & SMB2_CAP_MULTI_CHANNEL)) {
+			torture_skip(torture, "Samba currently only enables "
+				"lock sequence checking when multi channel "
+				"support is active in the server. Skipping.\n");
+		}
+
 	}
 
 	status = torture_smb2_testdir(tree, BASEDIR, &h);
