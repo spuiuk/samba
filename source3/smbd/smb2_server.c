@@ -3334,6 +3334,7 @@ struct smbXsrv_connection *smb_get_latest_client_connection(struct smbXsrv_clien
 
 struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
+	struct smbXsrv_pending_breaks break_queue_entry;
 	struct smbXsrv_connection *xconn;
 	struct smbXsrv_session *session;
 	struct smbXsrv_tcon *tcon;
@@ -3487,6 +3488,10 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	state->queue_entry.count = ARRAY_SIZE(state->vector);
 	state->queue_entry.ack.req = tevent_wait_send(state,
 			xconn->client->raw_ev_ctx);
+	state->break_queue_entry.req = state->queue_entry.ack.req;
+	memcpy(&state->break_queue_entry.data[0], &body[0x8], sizeof(uint64_t));
+	memcpy(&state->break_queue_entry.data[1], &body[0x10], sizeof(uint64_t));
+
 	if (state->queue_entry.ack.req == NULL) {
 		status = NT_STATUS_NO_MEMORY;
 		goto error;
@@ -3528,6 +3533,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
+	DLIST_ADD_END(xconn->client->pending_breaks, &state->break_queue_entry);
 
 	status = smbd_smb2_flush_send_queue(xconn);
 	if (!NT_STATUS_IS_OK(status)) {
@@ -3553,16 +3559,15 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	tevent_wait_recv(ack_req);
 	TALLOC_FREE(ack_req);
 
+	xconn = state->xconn;
 	if (!NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT))
 		goto done;
 
-	/* At the moment only do one retry */
+	/* At the moment we retry once */
 	if (state->num_retries >= 1)
 		goto done;
 
 	/* Handling NT_STATUS_IO_TIMEOUT */
-	xconn = state->xconn;
-	DLIST_REMOVE(xconn->smb2.ack_queue, &state->queue_entry);
 	xconn->transport.last_failure = timeval_current();
 
 	xconn = smb_get_latest_intact_client_connection(xconn->client);
@@ -3573,7 +3578,7 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	}
 
 	/* Set timeout for retries to 5 seconds */
-	status = _smbd_smb2_send_break(state->xconn, state->session,
+	status = _smbd_smb2_send_break(xconn, state->session,
 				       state->tcon,
 				       (const uint8_t *)&state->body,
 				       state->body_len, 5, &newstate);
@@ -3584,8 +3589,13 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	newstate->num_retries = state->num_retries + 1;
 	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
 	xconn->smb2.send_queue_len++;
+
+	DLIST_ADD_END(xconn->client->pending_breaks,
+		      &newstate->break_queue_entry);
 	smbd_smb2_flush_send_queue(xconn);
 done:
+	DLIST_REMOVE(xconn->client->pending_breaks,
+		     &state->break_queue_entry);
 	TALLOC_FREE(state);
 }
 
@@ -4047,7 +4057,7 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 
 		if (e->ack.req != NULL) {
 			e->ack.last_byte = xconn->smb2.sent_bytes;
-			DLIST_ADD_END(xconn->smb2.ack_queue, e);
+			//DLIST_ADD_END(xconn->smb2.ack_queue, e);
 			continue;
 		}
 

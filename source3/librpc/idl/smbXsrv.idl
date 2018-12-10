@@ -135,6 +135,8 @@ interface smbXsrv
 		[ignore] struct smbXsrv_open_table	*open_table;
 
 		[ignore] struct smbXsrv_connection	*connections;
+		[ignore] struct smbXsrv_pending_breaks	*pending_breaks;
+
 		boolean8		server_multi_channel_enabled;
 	} smbXsrv_client;
 

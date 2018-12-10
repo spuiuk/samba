@@ -363,6 +363,12 @@ struct smbXsrv_preauth {
 	uint8_t sha512_value[64];
 };
 
+struct smbXsrv_pending_breaks {
+	struct smbXsrv_pending_breaks *prev, *next;
+	uint64_t data[2];
+	struct tevent_req *req;
+};
+
 struct smbXsrv_connection {
 	struct smbXsrv_connection *prev, *next;
 
