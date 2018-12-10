@@ -3457,6 +3457,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				      struct smbXsrv_tcon *tcon,
 				      const uint8_t *body, size_t body_len,
 				      uint32_t timeout_secs,
+				      int is_lease,
 				      struct smbd_smb2_send_break_state **newstate)
 {
 	struct smbXsrv_client *client = xconn->client;
@@ -3491,6 +3492,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	state->break_queue_entry.req = state->queue_entry.ack.req;
 	memcpy(&state->break_queue_entry.data[0], &body[0x8], sizeof(uint64_t));
 	memcpy(&state->break_queue_entry.data[1], &body[0x10], sizeof(uint64_t));
+	state->break_queue_entry.is_lease = is_lease;
 
 	if (state->queue_entry.ack.req == NULL) {
 		status = NT_STATUS_NO_MEMORY;
@@ -3513,7 +3515,7 @@ error:
 static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
-				     const uint8_t *body, size_t body_len)
+				     const uint8_t *body, size_t body_len, int is_lease)
 {
 	NTSTATUS status;
 	struct smbd_smb2_send_break_state *state;
@@ -3526,7 +3528,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len,
-				       timeout, &state);
+				       timeout, is_lease, &state);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}
@@ -3581,7 +3583,9 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	status = _smbd_smb2_send_break(xconn, state->session,
 				       state->tcon,
 				       (const uint8_t *)&state->body,
-				       state->body_len, 5, &newstate);
+				       state->body_len, 5,
+				       state->break_queue_entry.is_lease,
+				       &newstate);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto done;
 	}
@@ -3614,7 +3618,7 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 	SBVAL(body, 0x08, op->global->open_persistent_id);
 	SBVAL(body, 0x10, op->global->open_volatile_id);
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body), 0);
 }
 
 NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
@@ -3637,7 +3641,7 @@ NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 	SIVAL(body, 0x24, 0);		/* AccessMaskHint, MUST be 0 */
 	SIVAL(body, 0x28, 0);		/* ShareMaskHint, MUST be 0 */
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body), 1);
 }
 
 static bool is_smb2_recvfile_write(struct smbd_smb2_request_read_state *state)

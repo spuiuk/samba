@@ -365,6 +365,7 @@ struct smbXsrv_preauth {
 
 struct smbXsrv_pending_breaks {
 	struct smbXsrv_pending_breaks *prev, *next;
+	int is_lease;
 	uint64_t data[2];
 	struct tevent_req *req;
 };
