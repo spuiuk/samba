@@ -3256,6 +3256,30 @@ NTSTATUS smbd_smb2_request_error_ex(struct smbd_smb2_request *req,
 	return smbd_smb2_request_done_ex(req, status, body, info, __location__);
 }
 
+static int smb_get_num_intact_channels(struct smbXsrv_client *client)
+{
+	struct smbXsrv_connection *c = NULL;
+	int i = 0;
+
+	for (c = DLIST_TAIL(client->connections);
+			c != NULL;
+			c = DLIST_PREV(c)) {
+
+		const char *addr;
+		uint16_t port;
+
+		if (timeval_elapsed(&c->transport.last_failure) <
+						OPLOCK_BREAK_TIMEOUT) {
+			DEBUGADD(10,("channel failed recently, skipping\n"));
+			continue;
+		}
+		i++;
+	}
+
+	return i;
+}
+
+
 struct smbXsrv_connection *smb_get_latest_intact_client_connection(struct smbXsrv_client *client)
 {
 	struct smbXsrv_connection *c = NULL;
@@ -3431,6 +3455,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				      struct smbXsrv_session *session,
 				      struct smbXsrv_tcon *tcon,
 				      const uint8_t *body, size_t body_len,
+				      uint32_t timeout_secs,
 				      struct smbd_smb2_send_break_state **newstate)
 {
 	struct smbXsrv_client *client = xconn->client;
@@ -3471,7 +3496,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				state);
 	tevent_req_set_endtime(state->queue_entry.ack.req,
 			       xconn->client->raw_ev_ctx,
-			       timeval_current_ofs(OPLOCK_BREAK_TIMEOUT, 0));
+			       timeval_current_ofs(timeout_secs, 0));
 
 	*newstate = state;
 	return NT_STATUS_OK;
@@ -3487,8 +3512,16 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 {
 	NTSTATUS status;
 	struct smbd_smb2_send_break_state *state;
+	int timeout;
 
-	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len, &state);
+	if (smb_get_num_intact_channels(xconn->client) > 1) {
+		timeout = OPLOCK_BREAK_TIMEOUT -5;
+	} else {
+		timeout = OPLOCK_BREAK_TIMEOUT;
+	}
+
+	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len,
+				       timeout, &state);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}
@@ -3539,10 +3572,11 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 		goto done;
 	}
 
+	/* Set timeout for retries to 5 seconds */
 	status = _smbd_smb2_send_break(state->xconn, state->session,
 				       state->tcon,
 				       (const uint8_t *)&state->body,
-				       state->body_len, &newstate);
+				       state->body_len, 5, &newstate);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto done;
 	}
