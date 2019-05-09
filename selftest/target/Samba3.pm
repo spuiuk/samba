@@ -173,6 +173,7 @@ sub check_env($$)
 	# name              => [dep_1, dep_2, ...],
 	nt4_dc              => [],
 	nt4_dc_schannel     => [],
+	nt4_dc_multichannel => [],
 
 	simpleserver        => [],
 	fileserver          => [],
@@ -289,6 +290,54 @@ sub setup_nt4_dc_schannel
 
 	return $vars;
 }
+
+sub setup_nt4_dc_multichannel
+{
+	my ($self, $path) = @_;
+
+	print "PROVISIONING NT4 DC WITH MULTI-CHANNEL ...";
+
+	my $pdc_options = "
+	domain master = yes
+	domain logons = yes
+	lanman auth = yes
+
+	rpc_server:epmapper = external
+	rpc_server:spoolss = external
+	rpc_server:lsarpc = external
+	rpc_server:samr = external
+	rpc_server:netlogon = external
+	rpc_server:register_embedded_np = yes
+
+	rpc_daemon:epmd = fork
+	rpc_daemon:spoolssd = fork
+	rpc_daemon:lsasd = fork
+
+	server multi channel support = yes
+	server max protocol = SMB3
+ ";
+
+	my $vars = $self->provision($path, "NT4MC",
+				    "LOCALNT4MC",
+				    "localntmcpass",
+				    $pdc_options);
+
+	$vars or return undef;
+
+	if (not $self->check_or_start($vars, "yes", "yes", "yes")) {
+	       return undef;
+	}
+
+	$vars->{DOMSID} = $vars->{SAMSID};
+	$vars->{DC_SERVER} = $vars->{SERVER};
+	$vars->{DC_SERVER_IP} = $vars->{SERVER_IP};
+	$vars->{DC_SERVER_IPV6} = $vars->{SERVER_IPV6};
+	$vars->{DC_NETBIOSNAME} = $vars->{NETBIOSNAME};
+	$vars->{DC_USERNAME} = $vars->{USERNAME};
+	$vars->{DC_PASSWORD} = $vars->{PASSWORD};
+
+	return $vars;
+ }
 
 sub setup_nt4_member
 {

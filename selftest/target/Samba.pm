@@ -448,7 +448,7 @@ sub get_interface($)
 		localktest6       => 7,
 		maptoguest        => 8,
 		localnt4dc9       => 9,
-		# 10 is spare
+		localnt4mc        => 10,
 
 		# 11-16 are used by selftest.pl for the client.conf. Most tests only
 		# use the first .11 IP. However, some tests (like winsreplication) rely
