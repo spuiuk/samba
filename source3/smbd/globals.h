@@ -262,7 +262,7 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     struct smbXsrv_open *op,
-				     uint8_t oplock_level);
+				     uint8_t oplock_level, int need_ack);
 NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 				    uint16_t new_epoch,
 				    struct smb2_lease_key *lease_key,

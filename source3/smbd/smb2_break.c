@@ -537,11 +537,17 @@ void send_break_message_smb2(files_struct *fsp,
 						    break_from, break_to, need_ack);
 	} else {
 		uint8_t smb2_oplock_level;
+		int need_ack = 1;
+
+		if (break_from == SMB2_OPLOCK_LEVEL_II) {
+			need_ack = 0;
+		}
+
 		smb2_oplock_level = (break_to & SMB2_LEASE_READ) ?
 			SMB2_OPLOCK_LEVEL_II : SMB2_OPLOCK_LEVEL_NONE;
 		status = smbd_smb2_send_oplock_break(xconn, session,
 						     fsp->conn->tcon, fsp->op,
-						     smb2_oplock_level);
+						     smb2_oplock_level, need_ack);
 	}
 	if (!NT_STATUS_IS_OK(status)) {
 		smbd_server_connection_terminate(client->connections,
