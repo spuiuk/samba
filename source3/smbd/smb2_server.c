@@ -3332,25 +3332,29 @@ struct smbXsrv_connection *smb_get_latest_client_connection(struct smbXsrv_clien
 	return DLIST_TAIL(client->connections);
 }
 
+struct smbd_smb2_send_break_state_payload {
+	struct iovec vector[1+SMBD_SMB2_NUM_IOV_PER_REQ];
+	uint8_t nbt_hdr[NBT_HDR_SIZE];
+	uint8_t tf[SMB2_TF_HDR_SIZE];
+	uint8_t hdr[SMB2_HDR_BODY];
+	size_t body_len;
+	uint8_t body[1];
+};
+
 struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
 	struct smbXsrv_pending_breaks break_queue_entry;
 	struct smbXsrv_connection *xconn;
 	struct smbXsrv_session *session;
 	struct smbXsrv_tcon *tcon;
-	size_t body_len;
 	int num_retries;
-	uint8_t nbt_hdr[NBT_HDR_SIZE];
-	uint8_t tf[SMB2_TF_HDR_SIZE];
-	uint8_t hdr[SMB2_HDR_BODY];
-	struct iovec vector[1+SMBD_SMB2_NUM_IOV_PER_REQ];
-	uint8_t body[1];
+	struct smbd_smb2_send_break_state_payload payload;
 };
 
 static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xconn,
 						   struct smbXsrv_session *session,
 						   struct smbXsrv_tcon *tcon,
-						   struct smbd_smb2_send_break_state *state)
+						   struct smbd_smb2_send_break_state_payload *payload)
 {
 	bool do_encryption = false;
 	uint64_t session_wire_id = 0;
@@ -3376,57 +3380,57 @@ static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xc
 		}
 	}
 
-	SIVAL(state->tf, SMB2_TF_PROTOCOL_ID, SMB2_TF_MAGIC);
-	SBVAL(state->tf, SMB2_TF_NONCE+0, nonce_low);
-	SBVAL(state->tf, SMB2_TF_NONCE+8, nonce_high);
-	SBVAL(state->tf, SMB2_TF_SESSION_ID, session_wire_id);
+	SIVAL(payload->tf, SMB2_TF_PROTOCOL_ID, SMB2_TF_MAGIC);
+	SBVAL(payload->tf, SMB2_TF_NONCE+0, nonce_low);
+	SBVAL(payload->tf, SMB2_TF_NONCE+8, nonce_high);
+	SBVAL(payload->tf, SMB2_TF_SESSION_ID, session_wire_id);
 
-	SIVAL(state->hdr, 0,				SMB2_MAGIC);
-	SSVAL(state->hdr, SMB2_HDR_LENGTH,		SMB2_HDR_BODY);
-	SSVAL(state->hdr, SMB2_HDR_EPOCH,		0);
-	SIVAL(state->hdr, SMB2_HDR_STATUS,		0);
-	SSVAL(state->hdr, SMB2_HDR_OPCODE,		SMB2_OP_BREAK);
-	SSVAL(state->hdr, SMB2_HDR_CREDIT,		0);
-	SIVAL(state->hdr, SMB2_HDR_FLAGS,		SMB2_HDR_FLAG_REDIRECT);
-	SIVAL(state->hdr, SMB2_HDR_NEXT_COMMAND,	0);
-	SBVAL(state->hdr, SMB2_HDR_MESSAGE_ID,		UINT64_MAX);
-	SIVAL(state->hdr, SMB2_HDR_PID,		0);
-	SIVAL(state->hdr, SMB2_HDR_TID,		0);
-	SBVAL(state->hdr, SMB2_HDR_SESSION_ID,		0);
-	memset(state->hdr+SMB2_HDR_SIGNATURE, 0, 16);
+	SIVAL(payload->hdr, 0,				SMB2_MAGIC);
+	SSVAL(payload->hdr, SMB2_HDR_LENGTH,		SMB2_HDR_BODY);
+	SSVAL(payload->hdr, SMB2_HDR_EPOCH,		0);
+	SIVAL(payload->hdr, SMB2_HDR_STATUS,		0);
+	SSVAL(payload->hdr, SMB2_HDR_OPCODE,		SMB2_OP_BREAK);
+	SSVAL(payload->hdr, SMB2_HDR_CREDIT,		0);
+	SIVAL(payload->hdr, SMB2_HDR_FLAGS,		SMB2_HDR_FLAG_REDIRECT);
+	SIVAL(payload->hdr, SMB2_HDR_NEXT_COMMAND,	0);
+	SBVAL(payload->hdr, SMB2_HDR_MESSAGE_ID,		UINT64_MAX);
+	SIVAL(payload->hdr, SMB2_HDR_PID,		0);
+	SIVAL(payload->hdr, SMB2_HDR_TID,		0);
+	SBVAL(payload->hdr, SMB2_HDR_SESSION_ID,		0);
+	memset(payload->hdr+SMB2_HDR_SIGNATURE, 0, 16);
 
-	state->vector[0] = (struct iovec) {
-		.iov_base = state->nbt_hdr,
-		.iov_len  = sizeof(state->nbt_hdr)
+	payload->vector[0] = (struct iovec) {
+		.iov_base = payload->nbt_hdr,
+		.iov_len  = sizeof(payload->nbt_hdr)
 	};
 
 	if (do_encryption) {
-		state->vector[1+SMBD_SMB2_TF_IOV_OFS] = (struct iovec) {
-			.iov_base = state->tf,
-			.iov_len  = sizeof(state->tf)
+		payload->vector[1+SMBD_SMB2_TF_IOV_OFS] = (struct iovec) {
+			.iov_base = payload->tf,
+			.iov_len  = sizeof(payload->tf)
 		};
 	} else {
-		state->vector[1+SMBD_SMB2_TF_IOV_OFS] = (struct iovec) {
+		payload->vector[1+SMBD_SMB2_TF_IOV_OFS] = (struct iovec) {
 			.iov_base = NULL,
 			.iov_len  = 0
 		};
 	}
 
-	state->vector[1+SMBD_SMB2_HDR_IOV_OFS] = (struct iovec) {
-		.iov_base = state->hdr,
-		.iov_len  = sizeof(state->hdr)
+	payload->vector[1+SMBD_SMB2_HDR_IOV_OFS] = (struct iovec) {
+		.iov_base = payload->hdr,
+		.iov_len  = sizeof(payload->hdr)
 	};
 
-	state->vector[1+SMBD_SMB2_BODY_IOV_OFS] = (struct iovec) {
-		.iov_base = state->body,
-		.iov_len  = state->body_len /* no sizeof(state->body) .. :-) */
+	payload->vector[1+SMBD_SMB2_BODY_IOV_OFS] = (struct iovec) {
+		.iov_base = payload->body,
+		.iov_len  = payload->body_len /* no sizeof(payload->body) .. :-) */
 	};
 
 	/*
-	 * state->vector[1+SMBD_SMB2_DYN_IOV_OFS] is NULL by talloc_zero above
+	 * payload->vector[1+SMBD_SMB2_DYN_IOV_OFS] is NULL by talloc_zero above
 	 */
 
-	ok = smb2_setup_nbt_length(state->vector,
+	ok = smb2_setup_nbt_length(payload->vector,
 				   1 + SMBD_SMB2_NUM_IOV_PER_REQ);
 	if (!ok) {
 		return NT_STATUS_INVALID_PARAMETER_MIX;
@@ -3437,7 +3441,7 @@ static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xc
 
 		status = smb2_signing_encrypt_pdu(encryption_key,
 					xconn->smb2.server.cipher,
-					&state->vector[1+SMBD_SMB2_TF_IOV_OFS],
+					&payload->vector[1+SMBD_SMB2_TF_IOV_OFS],
 					SMBD_SMB2_NUM_IOV_PER_REQ);
 		if (!NT_STATUS_IS_OK(status)) {
 			return status;
@@ -3463,7 +3467,8 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	NTSTATUS status;
 	size_t statelen;
 
-	statelen = offsetof(struct smbd_smb2_send_break_state, body)
+	statelen = offsetof(struct smbd_smb2_send_break_state, payload)
+		   + offsetof(struct smbd_smb2_send_break_state_payload, body)
 								+ body_len;
 	state = talloc_zero_size(client, statelen);
 	if (state == NULL) {
@@ -3471,10 +3476,10 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 	talloc_set_name_const(state, "struct smbd_smb2_send_break_state");
 
-	memcpy(state->body, body, body_len);
-	state->body_len = body_len;
+	memcpy(state->payload.body, body, body_len);
+	state->payload.body_len = body_len;
 	status = smbd_smb2_build_break_state_vector(xconn, session, tcon,
-						    state);
+						    &state->payload);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto error;
 	}
@@ -3484,8 +3489,8 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	state->session = session;
 	state->tcon = tcon;
 	state->num_retries = 0;
-	state->queue_entry.vector = state->vector;
-	state->queue_entry.count = ARRAY_SIZE(state->vector);
+	state->queue_entry.vector = (struct iovec *) &state->payload.vector;
+	state->queue_entry.count = ARRAY_SIZE(state->payload.vector);
 	state->queue_entry.ack.req = tevent_wait_send(state,
 			xconn->client->raw_ev_ctx);
 
@@ -3595,8 +3600,8 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	/* Set timeout for retries to 5 seconds */
 	status = _smbd_smb2_send_break(xconn, state->session,
 				       state->tcon,
-				       (const uint8_t *)&state->body,
-				       state->body_len, 5,
+				       (const uint8_t *)&state->payload.body,
+				       state->payload.body_len, 5,
 				       state->break_queue_entry.is_lease,
 				       1,	/* We need acks */
 				       &newstate);
