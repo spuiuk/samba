@@ -3350,7 +3350,6 @@ struct smbd_smb2_send_break_state {
 static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xconn,
 						   struct smbXsrv_session *session,
 						   struct smbXsrv_tcon *tcon,
-						   const uint8_t *body, size_t body_len,
 						   struct smbd_smb2_send_break_state *state)
 {
 	bool do_encryption = false;
@@ -3418,11 +3417,9 @@ static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xc
 		.iov_len  = sizeof(state->hdr)
 	};
 
-	memcpy(state->body, body, body_len);
-
 	state->vector[1+SMBD_SMB2_BODY_IOV_OFS] = (struct iovec) {
 		.iov_base = state->body,
-		.iov_len  = body_len /* no sizeof(state->body) .. :-) */
+		.iov_len  = state->body_len /* no sizeof(state->body) .. :-) */
 	};
 
 	/*
@@ -3474,8 +3471,10 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 	talloc_set_name_const(state, "struct smbd_smb2_send_break_state");
 
+	memcpy(state->body, body, body_len);
+	state->body_len = body_len;
 	status = smbd_smb2_build_break_state_vector(xconn, session, tcon,
-						    body, body_len, state);
+						    state);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto error;
 	}
@@ -3484,7 +3483,6 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	state->xconn = xconn;
 	state->session = session;
 	state->tcon = tcon;
-	state->body_len = body_len;
 	state->num_retries = 0;
 	state->queue_entry.vector = state->vector;
 	state->queue_entry.count = ARRAY_SIZE(state->vector);
