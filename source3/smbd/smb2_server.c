@@ -3256,29 +3256,16 @@ NTSTATUS smbd_smb2_request_error_ex(struct smbd_smb2_request *req,
 	return smbd_smb2_request_done_ex(req, status, body, info, __location__);
 }
 
-static int smb_get_num_intact_channels(struct smbXsrv_client *client)
+static bool smb_has_multiple_channels(struct smbXsrv_client *client)
 {
 	struct smbXsrv_connection *c = NULL;
-	int i = 0;
+	struct smbXsrv_connection *cn = NULL;
 
-	for (c = DLIST_TAIL(client->connections);
-			c != NULL;
-			c = DLIST_PREV(c)) {
+	c = DLIST_TAIL(client->connections);
+	cn = DLIST_PREV(c);
 
-		const char *addr;
-		uint16_t port;
-
-		if (timeval_elapsed(&c->transport.last_failure) <
-						OPLOCK_BREAK_TIMEOUT) {
-			DEBUGADD(10,("channel failed recently, skipping\n"));
-			continue;
-		}
-		i++;
-	}
-
-	return i;
+	return (cn != c);
 }
-
 
 struct smbXsrv_connection *smb_get_latest_intact_client_connection(struct smbXsrv_client *client)
 {
@@ -3526,7 +3513,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 
 	if (!ack_needed) {
 		timeout = 0;
-	} else if (smb_get_num_intact_channels(xconn->client) > 1) {
+	} else if (smb_has_multiple_channels(xconn->client)) {
 		timeout = 5;
 	} else {
 		timeout = OPLOCK_BREAK_TIMEOUT;
