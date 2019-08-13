@@ -3499,9 +3499,6 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		goto error;
 	}
 
-	tevent_req_set_callback(state->queue_entry.ack.req,
-				smbd_smb2_send_break_done,
-				state);
 	if (ack_needed) {
 		state->break_queue_entry.req = state->queue_entry.ack.req;
 		/* FileId for oplock breaks, LeaseKey for lease breaks */
@@ -3545,6 +3542,9 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		return status;
 	}
 
+	tevent_req_set_callback(state->queue_entry.ack.req,
+				smbd_smb2_send_break_done,
+				state);
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
 
@@ -3613,6 +3613,9 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 		goto done;
 	}
 
+	tevent_req_set_callback(state->queue_entry.ack.req,
+				smbd_smb2_send_break_done,
+				state);
 	newstate->num_retries = state->num_retries + 1;
 	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
 	xconn->smb2.send_queue_len++;
