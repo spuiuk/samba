@@ -3458,8 +3458,6 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				      struct smbXsrv_tcon *tcon,
 				      const uint8_t *body, size_t body_len,
 				      uint32_t timeout_secs,
-				      int is_lease,
-				      int ack_needed,
 				      struct smbd_smb2_send_break_state **newstate)
 {
 	struct smbXsrv_client *client = xconn->client;
@@ -3499,15 +3497,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		goto error;
 	}
 
-	if (ack_needed) {
-		state->break_queue_entry.req = state->queue_entry.ack.req;
-		/* FileId for oplock breaks, LeaseKey for lease breaks */
-		memcpy(&state->break_queue_entry.data[0], &body[0x8],
-			sizeof(uint64_t));
-		memcpy(&state->break_queue_entry.data[1], &body[0x10],
-			sizeof(uint64_t));
-		state->break_queue_entry.is_lease = is_lease;
-
+	if (timeout_secs > 0) {
 		tevent_req_set_endtime(state->queue_entry.ack.req,
 				       xconn->client->raw_ev_ctx,
 				       timeval_current_ofs(timeout_secs, 0));
@@ -3530,14 +3520,16 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	struct smbd_smb2_send_break_state *state;
 	int timeout;
 
-	if (smb_get_num_intact_channels(xconn->client) > 1) {
-		timeout = OPLOCK_BREAK_TIMEOUT -5;
+	if (!ack_needed) {
+		timeout = 0;
+	} else if (smb_get_num_intact_channels(xconn->client) > 1) {
+		timeout = 5;
 	} else {
 		timeout = OPLOCK_BREAK_TIMEOUT;
 	}
 
 	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len,
-				       timeout, is_lease, ack_needed, &state);
+				       timeout, &state);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}
@@ -3549,6 +3541,15 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	xconn->smb2.send_queue_len++;
 
 	if (ack_needed) {
+		/* Build smbXsrv_pending_breaks */
+		state->break_queue_entry.req = state->queue_entry.ack.req;
+		/* FileId for oplock breaks, LeaseKey for lease breaks */
+		memcpy(&state->break_queue_entry.data[0], &body[0x8],
+			sizeof(uint64_t));
+		memcpy(&state->break_queue_entry.data[1], &body[0x10],
+			sizeof(uint64_t));
+		state->break_queue_entry.is_lease = is_lease;
+
 		DLIST_ADD_END(xconn->client->pending_breaks,
 			      &state->break_queue_entry);
 	}
@@ -3606,8 +3607,6 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 				       state->tcon,
 				       (const uint8_t *)&state->payload.body,
 				       state->payload.body_len, 5,
-				       state->break_queue_entry.is_lease,
-				       1,	/* We need acks */
 				       &newstate);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto done;
@@ -3619,6 +3618,13 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	newstate->num_retries = state->num_retries + 1;
 	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
 	xconn->smb2.send_queue_len++;
+
+	/* Build smbXsrv_pending_breaks */
+	state->break_queue_entry.req = state->queue_entry.ack.req;
+	/* FileId for oplock breaks, LeaseKey for lease breaks */
+	memcpy(&state->break_queue_entry.data[0], &body[0x8], sizeof(uint64_t));
+	memcpy(&state->break_queue_entry.data[1], &body[0x10], sizeof(uint64_t));
+	state->break_queue_entry.is_lease = is_lease;
 
 	DLIST_ADD_END(xconn->client->pending_breaks,
 		      &newstate->break_queue_entry);
