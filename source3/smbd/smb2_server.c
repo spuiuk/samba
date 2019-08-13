@@ -3348,6 +3348,8 @@ struct smbd_smb2_send_break_state {
 	struct smbXsrv_session *session;
 	struct smbXsrv_tcon *tcon;
 	int num_retries;
+	struct timeval overall_timeout;
+
 	struct smbd_smb2_send_break_state_payload payload;
 };
 
@@ -3518,7 +3520,9 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 {
 	NTSTATUS status;
 	struct smbd_smb2_send_break_state *state;
-	int timeout;
+	uint32_t timeout;
+	struct timeval overall_timeout = timeval_current_ofs(
+						OPLOCK_BREAK_TIMEOUT, 0);
 
 	if (!ack_needed) {
 		timeout = 0;
@@ -3550,6 +3554,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 			sizeof(uint64_t));
 		state->break_queue_entry.is_lease = is_lease;
 
+		state->overall_timeout = overall_timeout;
 		DLIST_ADD_END(xconn->client->pending_breaks,
 			      &state->break_queue_entry);
 	}
@@ -3568,6 +3573,16 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	return NT_STATUS_OK;
 }
 
+/* Callback for oplock/lease break retries */
+static void smbd_smb2_send_break_channel_done(struct tevent_req *ack_req)
+{
+	struct smbd_smb2_send_break_state *state =
+			tevent_req_callback_data(ack_req,
+					struct smbd_smb2_send_break_state);
+
+	TALLOC_FREE(state);
+}
+
 /* Called only when an ACK for the oplock/lease break is expected. */
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 {
@@ -3578,58 +3593,62 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	struct smbXsrv_connection *xconn;
 	struct smbd_smb2_send_break_state *newstate;
 	size_t statelen;
+	uint32_t timeout;
 
 	tevent_req_is_nterror(ack_req, &status);
 	DEBUG(1,("got this error: %s\n", nt_errstr(status)));
 	tevent_wait_recv(ack_req);
-	TALLOC_FREE(ack_req);
 
 	xconn = state->xconn;
 	if (!NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT))
-		goto done;
-
-	/* At the moment we retry once */
-	if (state->num_retries >= 1)
-		goto done;
+		goto done_main_channel;
 
 	/* Handling NT_STATUS_IO_TIMEOUT */
+
+	if (timeval_expired(&state->overall_timeout)) {
+		goto done_main_channel;
+	}
+
 	xconn->transport.last_failure = timeval_current();
 
 	xconn = smb_get_latest_intact_client_connection(xconn->client);
 	if (!xconn) {
-		/* Todo: What to do when no more connections are available */
 		DEBUG(0, ("No more connections to retry\n"));
-		goto done;
+		tevent_req_set_endtime(state->queue_entry.ack.req,
+				       xconn->client->raw_ev_ctx,
+				       state->overall_timeout);
+
+		return;
 	}
 
-	/* Set timeout for retries to 5 seconds */
 	status = _smbd_smb2_send_break(xconn, state->session,
 				       state->tcon,
 				       (const uint8_t *)&state->payload.body,
-				       state->payload.body_len, 5,
+				       state->payload.body_len,
+				       0,
 				       &newstate);
 	if (!NT_STATUS_IS_OK(status)) {
-		goto done;
+		return;
 	}
 
 	tevent_req_set_callback(state->queue_entry.ack.req,
-				smbd_smb2_send_break_done,
+				smbd_smb2_send_break_channel_done,
 				state);
-	newstate->num_retries = state->num_retries + 1;
+	state->num_retries++;
 	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
 	xconn->smb2.send_queue_len++;
 
-	/* Build smbXsrv_pending_breaks */
-	state->break_queue_entry.req = state->queue_entry.ack.req;
-	/* FileId for oplock breaks, LeaseKey for lease breaks */
-	memcpy(&state->break_queue_entry.data[0], &body[0x8], sizeof(uint64_t));
-	memcpy(&state->break_queue_entry.data[1], &body[0x10], sizeof(uint64_t));
-	state->break_queue_entry.is_lease = is_lease;
-
-	DLIST_ADD_END(xconn->client->pending_breaks,
-		      &newstate->break_queue_entry);
 	smbd_smb2_flush_send_queue(xconn);
-done:
+	/* We await for acks on main channel only. */
+	tevent_wait_done(newstate->queue_entry.ack.req);
+
+	/* Set timeout for 5 seconds before we retry next channel */
+	tevent_req_set_endtime(state->queue_entry.ack.req,
+			       xconn->client->raw_ev_ctx,
+			       timeval_current_ofs(5, 0));
+	return;
+done_main_channel:
+	TALLOC_FREE(ack_req);
 	DLIST_REMOVE(xconn->client->pending_breaks,
 		     &state->break_queue_entry);
 	TALLOC_FREE(state);
