@@ -3351,7 +3351,7 @@ struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_break_state_payload payload;
 };
 
-static NTSTATUS smbd_smb2_build_break_state_vector(struct smbXsrv_connection *xconn,
+static NTSTATUS smbd_smb2_build_break_state_payload(struct smbXsrv_connection *xconn,
 						   struct smbXsrv_session *session,
 						   struct smbXsrv_tcon *tcon,
 						   struct smbd_smb2_send_break_state_payload *payload)
@@ -3478,7 +3478,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 
 	memcpy(state->payload.body, body, body_len);
 	state->payload.body_len = body_len;
-	status = smbd_smb2_build_break_state_vector(xconn, session, tcon,
+	status = smbd_smb2_build_break_state_payload(xconn, session, tcon,
 						    &state->payload);
 	if (!NT_STATUS_IS_OK(status)) {
 		goto error;
