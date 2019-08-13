@@ -3514,7 +3514,6 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		tevent_req_set_endtime(state->queue_entry.ack.req,
 				       xconn->client->raw_ev_ctx,
 				       timeval_current_ofs(timeout_secs, 0));
-		state->queue_entry.ack.ack_needed = true;
 	}
 
 	*newstate = state;
@@ -3558,6 +3557,11 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	if (!NT_STATUS_IS_OK(status)) {
 		TALLOC_FREE(state);
 		return status;
+	}
+
+	/* No acks being received. */
+	if (!ack_needed) {
+		tevent_wait_done(state->queue_entry.ack.req);
 	}
 
 	return NT_STATUS_OK;
@@ -4091,13 +4095,6 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 		if (e->ack.req != NULL) {
 			e->ack.last_byte = xconn->smb2.sent_bytes;
 			//DLIST_ADD_END(xconn->smb2.ack_queue, e);
-			/*
-			 *  We do not wait for a response from the client.
-			 *  Trigger callback
-			*/
-			if (e->ack.ack_needed == false) {
-				tevent_wait_done(e->ack.req);
-			}
 
 			continue;
 		}

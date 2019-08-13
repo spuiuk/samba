@@ -698,7 +698,6 @@ struct smbd_smb2_send_queue {
 	struct {
 		struct tevent_req *req;
 		uint64_t last_byte;
-		bool ack_needed;
 	} ack;
 
 	TALLOC_CTX *mem_ctx;
