@@ -3267,6 +3267,34 @@ static bool smb_has_multiple_channels(struct smbXsrv_client *client)
 	return (cn != c);
 }
 
+struct smbXsrv_connection
+	*smb_get_next_connection(struct smbXsrv_connection *main_channel,
+				 struct smbXsrv_connection *prev_channel)
+{
+	struct smbXsrv_client *client = main_channel->client;
+	struct smbXsrv_connection *ret;
+
+	if (prev_channel == NULL) {
+		ret = DLIST_TAIL(client->connections);
+		if (ret == main_channel) {
+			ret = DLIST_PREV(ret);
+		}
+		return ret;
+	}
+
+	/* We need to ensure that the previous connection is still available. */
+	for (ret = DLIST_TAIL(client->connections);
+			ret != NULL;
+			ret = DLIST_PREV(ret)) {
+		if (ret != prev_channel) {
+			continue;
+		}
+		ret = DLIST_PREV(ret);
+		return ret;
+	}
+	return NULL;
+}
+
 struct smbXsrv_connection *smb_get_latest_intact_client_connection(struct smbXsrv_client *client)
 {
 	struct smbXsrv_connection *c = NULL;
@@ -3332,6 +3360,7 @@ struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
 	struct smbXsrv_pending_breaks break_queue_entry;
 	struct smbXsrv_connection *xconn;
+	struct smbXsrv_connection *prev_channel;
 	struct smbXsrv_session *session;
 	struct smbXsrv_tcon *tcon;
 	int num_retries;
@@ -3473,6 +3502,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 
 	state->queue_entry.mem_ctx = state;
 	state->xconn = xconn;
+	state->prev_channel = NULL;
 	state->session = session;
 	state->tcon = tcon;
 	state->num_retries = 0;
@@ -3577,7 +3607,7 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	struct smbd_smb2_send_break_state *state =
 		tevent_req_callback_data(ack_req,
 		struct smbd_smb2_send_break_state);
-	struct smbXsrv_connection *xconn;
+	struct smbXsrv_connection *xconn, *tmp_xconn;
 	struct smbd_smb2_send_break_state *newstate;
 	size_t statelen;
 	uint32_t timeout;
@@ -3598,8 +3628,8 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 
 	xconn->transport.last_failure = timeval_current();
 
-	xconn = smb_get_latest_intact_client_connection(xconn->client);
-	if (!xconn) {
+	tmp_xconn = smb_get_next_connection(xconn, state->prev_channel);
+	if (tmp_xconn == NULL) {
 		DEBUG(0, ("No more connections to retry\n"));
 		tevent_req_set_endtime(state->queue_entry.ack.req,
 				       xconn->client->raw_ev_ctx,
@@ -3607,6 +3637,8 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 
 		return;
 	}
+	xconn = tmp_xconn;
+	state->prev_channel = xconn;
 
 	status = _smbd_smb2_send_break(xconn, state->session,
 				       state->tcon,
