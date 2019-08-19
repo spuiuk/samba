@@ -3443,7 +3443,6 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				      struct smbXsrv_session *session,
 				      struct smbXsrv_tcon *tcon,
 				      const uint8_t *body, size_t body_len,
-				      uint32_t timeout_secs,
 				      struct smbd_smb2_send_break_state **newstate)
 {
 	struct smbXsrv_client *client = xconn->client;
@@ -3484,12 +3483,6 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		goto error;
 	}
 
-	if (timeout_secs > 0) {
-		tevent_req_set_endtime(state->queue_entry.ack.req,
-				       xconn->client->raw_ev_ctx,
-				       timeval_current_ofs(timeout_secs, 0));
-	}
-
 	*newstate = state;
 	return NT_STATUS_OK;
 error:
@@ -3509,16 +3502,8 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	struct timeval overall_timeout = timeval_current_ofs(
 						OPLOCK_BREAK_TIMEOUT, 0);
 
-	if (!ack_needed) {
-		timeout = 0;
-	} else if (smb_has_multiple_channels(xconn->client)) {
-		timeout = 5;
-	} else {
-		timeout = OPLOCK_BREAK_TIMEOUT;
-	}
-
 	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len,
-				       timeout, &state);
+				       &state);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
 	}
@@ -3529,7 +3514,16 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
 	xconn->smb2.send_queue_len++;
 
+	if (smb_has_multiple_channels(xconn->client)) {
+		timeout = 5;
+	} else {
+		timeout = OPLOCK_BREAK_TIMEOUT;
+	}
+
 	if (ack_needed) {
+		tevent_req_set_endtime(state->queue_entry.ack.req,
+				       xconn->client->raw_ev_ctx,
+				       timeval_current_ofs(timeout, 0));
 		/* Build smbXsrv_pending_breaks */
 		state->break_queue_entry.req = state->queue_entry.ack.req;
 		/* FileId for oplock breaks, LeaseKey for lease breaks */
@@ -3610,7 +3604,6 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 				       state->tcon,
 				       (const uint8_t *)&state->payload.body,
 				       state->payload.body_len,
-				       0,
 				       &newstate);
 	if (!NT_STATUS_IS_OK(status)) {
 		return;
