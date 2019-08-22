@@ -3328,9 +3328,9 @@ struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
 	struct smbXsrv_pending_breaks break_queue_entry;
 	struct smbXsrv_connection *xconn;
-	struct smbXsrv_connection *prev_channel;
 	struct smbXsrv_session *session;
 	struct smbXsrv_tcon *tcon;
+	struct smbXsrv_connection *prev_channel;
 	int num_retries;
 	struct timeval overall_timeout;
 
