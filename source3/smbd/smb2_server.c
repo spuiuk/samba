@@ -3440,7 +3440,8 @@ static NTSTATUS smbd_smb2_build_break_state_payload(struct smbXsrv_connection *x
 
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req);
 
-static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
+static NTSTATUS _smbd_smb2_send_break(struct tevent_context *ev_ctx,
+				      struct smbXsrv_connection *xconn,
 				      struct smbXsrv_session *session,
 				      struct smbXsrv_tcon *tcon,
 				      const uint8_t *body, size_t body_len,
@@ -3469,7 +3470,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	state->queue_entry.mem_ctx = state;
-	state->ev_ctx = xconn->client->raw_ev_ctx;
+	state->ev_ctx = ev_ctx;
 	state->xconn = xconn;
 	state->prev_channel = NULL;
 	state->session = session;
@@ -3477,7 +3478,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	state->num_retries = 0;
 	state->queue_entry.vector = (struct iovec *) &state->payload.vector;
 	state->queue_entry.count = ARRAY_SIZE(state->payload.vector);
-	state->queue_entry.ack.req = tevent_wait_send(state, state->ev_ctx);
+	state->queue_entry.ack.req = tevent_wait_send(state, ev_ctx);
 
 	if (state->queue_entry.ack.req == NULL) {
 		status = NT_STATUS_NO_MEMORY;
@@ -3501,7 +3502,8 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	struct smbd_smb2_send_break_state *state;
 	uint32_t timeout;
 
-	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len,
+	status = _smbd_smb2_send_break(xconn->client->raw_ev_ctx,
+				       xconn, session, tcon, body, body_len,
 				       &state);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
@@ -3596,7 +3598,8 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	xconn = tmp_xconn;
 	state->prev_channel = xconn;
 
-	status = _smbd_smb2_send_break(xconn, state->session,
+	status = _smbd_smb2_send_break(state->ev_ctx,
+				       xconn, state->session,
 				       state->tcon,
 				       (const uint8_t *)&state->payload.body,
 				       state->payload.body_len,
