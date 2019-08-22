@@ -3327,6 +3327,7 @@ struct smbd_smb2_send_break_state_payload {
 struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
 	struct smbXsrv_pending_breaks break_queue_entry;
+	struct tevent_context *ev_ctx;
 	struct smbXsrv_connection *xconn;
 	struct smbXsrv_session *session;
 	struct smbXsrv_tcon *tcon;
@@ -3468,6 +3469,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	state->queue_entry.mem_ctx = state;
+	state->ev_ctx = xconn->client->raw_ev_ctx;
 	state->xconn = xconn;
 	state->prev_channel = NULL;
 	state->session = session;
@@ -3475,8 +3477,7 @@ static NTSTATUS _smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	state->num_retries = 0;
 	state->queue_entry.vector = (struct iovec *) &state->payload.vector;
 	state->queue_entry.count = ARRAY_SIZE(state->payload.vector);
-	state->queue_entry.ack.req = tevent_wait_send(state,
-			xconn->client->raw_ev_ctx);
+	state->queue_entry.ack.req = tevent_wait_send(state, state->ev_ctx);
 
 	if (state->queue_entry.ack.req == NULL) {
 		status = NT_STATUS_NO_MEMORY;
@@ -3506,8 +3507,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		return status;
 	}
 
-	tevent_req_set_callback(state->queue_entry.ack.req,
-				smbd_smb2_send_break_done,
+	tevent_req_set_callback(state->queue_entry.ack.req, smbd_smb2_send_break_done,
 				state);
 
 	if (smb_has_multiple_channels(xconn->client)) {
@@ -3520,7 +3520,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		state->overall_timeout = timeval_current_ofs(
 						OPLOCK_BREAK_TIMEOUT, 0);
 		tevent_req_set_endtime(state->queue_entry.ack.req,
-				       xconn->client->raw_ev_ctx,
+				       state->ev_ctx,
 				       timeval_current_ofs(timeout, 0));
 
 		/* Build smbXsrv_pending_breaks */
@@ -3588,7 +3588,7 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	if (tmp_xconn == NULL) {
 		DEBUG(0, ("No more connections to retry\n"));
 		tevent_req_set_endtime(state->queue_entry.ack.req,
-				       xconn->client->raw_ev_ctx,
+				       state->ev_ctx,
 				       state->overall_timeout);
 
 		return;
@@ -3618,7 +3618,7 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 
 	/* Set timeout for 5 seconds before we retry next channel */
 	tevent_req_set_endtime(state->queue_entry.ack.req,
-			       xconn->client->raw_ev_ctx,
+			       state->ev_ctx,
 			       timeval_current_ofs(5, 0));
 	return;
 done_main_channel:
