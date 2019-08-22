@@ -3565,24 +3565,21 @@ static void smbd_smb2_send_break_channel_done(struct tevent_req *ack_req)
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 {
 	NTSTATUS status;
-	struct smbd_smb2_send_break_state *state =
-		tevent_req_callback_data(ack_req,
-		struct smbd_smb2_send_break_state);
+	struct smbd_smb2_send_break_state *state;
 	struct smbXsrv_connection *xconn, *tmp_xconn;
 	struct smbd_smb2_send_break_state *newstate;
 	size_t statelen;
 	uint32_t timeout;
 
-	tevent_req_is_nterror(ack_req, &status);
-	DEBUG(1,("got this error: %s\n", nt_errstr(status)));
-	tevent_wait_recv(ack_req);
-
+	state = tevent_req_callback_data(ack_req,
+			struct smbd_smb2_send_break_state);
 	xconn = state->xconn;
+
+	tevent_req_is_nterror(ack_req, &status);
 	if (!NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT))
 		goto done_main_channel;
 
 	/* Handling NT_STATUS_IO_TIMEOUT */
-
 	if (timeval_expired(&state->overall_timeout)) {
 		goto done_main_channel;
 	}
@@ -3625,6 +3622,7 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 			       timeval_current_ofs(5, 0));
 	return;
 done_main_channel:
+	tevent_wait_recv(ack_req);
 	TALLOC_FREE(ack_req);
 	DLIST_REMOVE(xconn->client->pending_breaks,
 		     &state->break_queue_entry);
