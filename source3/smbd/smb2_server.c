@@ -3511,8 +3511,6 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	tevent_req_set_callback(state->queue_entry.ack.req,
 				smbd_smb2_send_break_done,
 				state);
-	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
-	xconn->smb2.send_queue_len++;
 
 	if (smb_has_multiple_channels(xconn->client)) {
 		timeout = 5;
@@ -3538,6 +3536,8 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 			      &state->break_queue_entry);
 	}
 
+	DLIST_ADD_END(xconn->smb2.send_queue, &state->queue_entry);
+	xconn->smb2.send_queue_len++;
 	status = smbd_smb2_flush_send_queue(xconn);
 	if (!NT_STATUS_IS_OK(status)) {
 		TALLOC_FREE(state);
