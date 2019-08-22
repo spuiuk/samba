@@ -3499,8 +3499,6 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	NTSTATUS status;
 	struct smbd_smb2_send_break_state *state;
 	uint32_t timeout;
-	struct timeval overall_timeout = timeval_current_ofs(
-						OPLOCK_BREAK_TIMEOUT, 0);
 
 	status = _smbd_smb2_send_break(xconn, session, tcon, body, body_len,
 				       &state);
@@ -3531,7 +3529,8 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 			sizeof(uint64_t));
 		state->break_queue_entry.is_lease = is_lease;
 
-		state->overall_timeout = overall_timeout;
+		state->overall_timeout = timeval_current_ofs(
+						OPLOCK_BREAK_TIMEOUT, 0);
 		DLIST_ADD_END(xconn->client->pending_breaks,
 			      &state->break_queue_entry);
 	}
