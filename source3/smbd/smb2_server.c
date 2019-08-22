@@ -3517,9 +3517,12 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	if (ack_needed) {
+		state->overall_timeout = timeval_current_ofs(
+						OPLOCK_BREAK_TIMEOUT, 0);
 		tevent_req_set_endtime(state->queue_entry.ack.req,
 				       xconn->client->raw_ev_ctx,
 				       timeval_current_ofs(timeout, 0));
+
 		/* Build smbXsrv_pending_breaks */
 		state->break_queue_entry.req = state->queue_entry.ack.req;
 		/* FileId for oplock breaks, LeaseKey for lease breaks */
@@ -3528,9 +3531,6 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		memcpy(&state->break_queue_entry.data[1], &body[0x10],
 			sizeof(uint64_t));
 		state->break_queue_entry.is_lease = is_lease;
-
-		state->overall_timeout = timeval_current_ofs(
-						OPLOCK_BREAK_TIMEOUT, 0);
 		DLIST_ADD_END(xconn->client->pending_breaks,
 			      &state->break_queue_entry);
 	}
