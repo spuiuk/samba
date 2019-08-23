@@ -3480,13 +3480,7 @@ static NTSTATUS _smbd_smb2_send_break(TALLOC_CTX *mem_ctx,
 	state->num_retries = 0;
 	state->queue_entry.vector = (struct iovec *) &state->payload.vector;
 	state->queue_entry.count = ARRAY_SIZE(state->payload.vector);
-	state->queue_entry.ack.req = tevent_wait_send(mem_ctx, ev_ctx);
 	state->queue_entry.mem_ctx = state->mem_ctx;
-
-	if (state->queue_entry.ack.req == NULL) {
-		status = NT_STATUS_NO_MEMORY;
-		goto error;
-	}
 
 	*newstate = state;
 	return NT_STATUS_OK;
@@ -3510,6 +3504,13 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				       &state);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
+	}
+
+	state->queue_entry.ack.req = tevent_wait_send(state->mem_ctx,
+						      state->ev_ctx);
+	if (state->queue_entry.ack.req == NULL) {
+		status = NT_STATUS_NO_MEMORY;
+		goto error;
 	}
 
 	tevent_req_set_callback(state->queue_entry.ack.req, smbd_smb2_send_break_done,
@@ -3554,6 +3555,9 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	return NT_STATUS_OK;
+error:
+	TALLOC_FREE(state);
+	return status;
 }
 
 static bool
@@ -3581,6 +3585,13 @@ static bool
 	}
 
 	state->num_retries++;
+	newstate->queue_entry.ack.req = tevent_wait_send(state->mem_ctx,
+							 state->ev_ctx);
+	if (newstate->queue_entry.ack.req == NULL) {
+		TALLOC_FREE(newstate);
+		return false;
+	}
+
 	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
 	xconn->smb2.send_queue_len++;
 
