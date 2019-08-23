@@ -3556,17 +3556,43 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	return NT_STATUS_OK;
 }
 
-/* Callback for oplock/lease break retries */
-static void smbd_smb2_send_break_channel_done(struct tevent_req *ack_req)
+static bool
+	smbd_smb2_send_channel_break(struct smbd_smb2_send_break_state *state)
 {
-	struct smbd_smb2_send_break_state *state =
-			tevent_req_callback_data(ack_req,
-					struct smbd_smb2_send_break_state);
+	NTSTATUS status;
+	struct smbXsrv_connection *xconn;
+	struct smbd_smb2_send_break_state *newstate;
 
-	TALLOC_FREE(state);
+	xconn = smb_get_next_connection(state->xconn, state->prev_channel);
+	if (xconn == NULL) {
+		DEBUG(0, ("No more connections to retry\n"));
+		return false;
+	}
+	state->prev_channel = xconn;
+
+	status = _smbd_smb2_send_break(state->mem_ctx, state->ev_ctx,
+				       xconn, state->session,
+				       state->tcon,
+				       (const uint8_t *)&state->payload.body,
+				       state->payload.body_len,
+				       &newstate);
+	if (!NT_STATUS_IS_OK(status)) {
+		return false;
+	}
+
+	state->num_retries++;
+	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
+	xconn->smb2.send_queue_len++;
+
+	smbd_smb2_flush_send_queue(xconn);
+
+	/* We await for acks on main channel only. */
+	tevent_req_post(newstate->queue_entry.ack.req, newstate->ev_ctx);
+	TALLOC_FREE(newstate);
+
+	return true;
 }
 
-/* Called only when an ACK for the oplock/lease break is expected. */
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 {
 	NTSTATUS status;
@@ -3584,43 +3610,19 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	if (!NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT))
 		goto done_main_channel;
 
-	/* Handling NT_STATUS_IO_TIMEOUT */
+	/* Now handling NT_STATUS_IO_TIMEOUT */
+
 	if (timeval_expired(&state->overall_timeout)) {
 		goto done_main_channel;
 	}
 
-	tmp_xconn = smb_get_next_connection(xconn, state->prev_channel);
-	if (tmp_xconn == NULL) {
-		DEBUG(0, ("No more connections to retry\n"));
+	if (!smbd_smb2_send_channel_break(state)) {
+		/* No more channels to try */
 		tevent_req_set_endtime(state->queue_entry.ack.req,
 				       state->ev_ctx,
 				       state->overall_timeout);
-
 		return;
 	}
-	xconn = tmp_xconn;
-	state->prev_channel = xconn;
-
-	status = _smbd_smb2_send_break(state->mem_ctx, state->ev_ctx,
-				       xconn, state->session,
-				       state->tcon,
-				       (const uint8_t *)&state->payload.body,
-				       state->payload.body_len,
-				       &newstate);
-	if (!NT_STATUS_IS_OK(status)) {
-		return;
-	}
-
-	tevent_req_set_callback(newstate->queue_entry.ack.req,
-				smbd_smb2_send_break_channel_done,
-				newstate);
-	state->num_retries++;
-	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
-	xconn->smb2.send_queue_len++;
-
-	smbd_smb2_flush_send_queue(xconn);
-	/* We await for acks on main channel only. */
-	tevent_wait_done(newstate->queue_entry.ack.req);
 
 	/* Set timeout for 5 seconds before we retry next channel */
 	tevent_req_set_endtime(state->queue_entry.ack.req,
