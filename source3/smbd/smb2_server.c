@@ -4034,8 +4034,6 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			return map_nt_error_from_unix_common(err);
 		}
 
-		xconn->smb2.sent_bytes += ret;
-
 		ok = iov_advance(&e->vector, &e->count, ret);
 		if (!ok) {
 			return NT_STATUS_INTERNAL_ERROR;
@@ -4051,7 +4049,6 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 		DLIST_REMOVE(xconn->smb2.send_queue, e);
 
 		if (e->ack.req != NULL) {
-			e->ack.last_byte = xconn->smb2.sent_bytes;
 			continue;
 		}
 

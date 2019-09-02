@@ -471,7 +471,6 @@ struct smbXsrv_connection {
 		} request_read_state;
 		struct smbd_smb2_send_queue *send_queue;
 		size_t send_queue_len;
-		uint64_t sent_bytes;
 		struct smbd_smb2_send_queue *ack_queue;
 
 		struct {
@@ -696,7 +695,6 @@ struct smbd_smb2_send_queue {
 
 	struct {
 		struct tevent_req *req;
-		uint64_t last_byte;
 	} ack;
 
 	TALLOC_CTX *mem_ctx;
