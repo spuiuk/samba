@@ -4063,37 +4063,6 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 			continue;
 		}
 
-#if 0
-		if (e->ack.req != NULL && !e->ack.started) {
-			struct tcp_info info;
-			socklen_t ilen = sizeof(info);
-
-			ret = getsockopt(xconn->transport.sock, IPPROTO_TCP,
-					 TCP_INFO, (void *)&info, &ilen);
-			if (ret != 0) {
-				DEBUG(0,("%s:%s: errno[%d/%s]\n",
-				      __location__, __func__,
-				      errno, strerror(errno)));
-				ZERO_STRUCT(info);
-			} else {
-				DEBUG(0,("%s:%s: unacked[%u] sacked[%u]\n",
-				      __location__, __func__,
-				      (unsigned)info.tcpi_unacked,
-				      (unsigned)info.tcpi_sacked));
-			}
-
-			e->ack.started = true;
-			e->ack.seqnum = info.tcpi_sacked + iov_buflen(e->vector, e->count);
-
-			ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value1);
-			if (ret == 0) {
-				DEBUG(0, ("%s:%s: before write SIOCOUTQ value is: %d\n",
-					__location__, __func__,
-					value1));
-			}
-		}
-#endif
-
 		ret = writev(xconn->transport.sock, e->vector, e->count);
 		if (ret == 0) {
 			/* propagate end of file */
