@@ -3952,47 +3952,6 @@ static int socket_error_from_errno(int ret,
 	return sys_errno;
 }
 
-static NTSTATUS smbd_smb2_check_ack_queue(struct smbXsrv_connection *xconn)
-{
-	struct smbd_smb2_send_queue *cur = NULL;
-	struct smbd_smb2_send_queue *next = NULL;
-	int value;
-	int ret;
-	uint64_t acked_byte;
-
-	ret = ioctl(xconn->transport.sock, SIOCOUTQ, &value);
-	if (ret != 0) {
-		return NT_STATUS_FOOBAR;
-	}
-
-	// check for underflow?
-	acked_byte = xconn->smb2.sent_bytes - value;
-
-	DEBUG(10, ("%s:%s: SIOCOUTQ value is: %d\n",
-		__location__, __func__,
-		value));
-
-	for (cur = xconn->smb2.ack_queue; cur != NULL; cur = next) {
-		next = cur->next;
-
-		if (cur->ack.last_byte > acked_byte) {
-			/*
-			 * The ack_queue is ordered, if the first
-			 * one isn't acked none is acked.
-			 */
-			break;
-		}
-
-		DLIST_REMOVE(xconn->smb2.ack_queue, cur);
-		tevent_wait_done(cur->ack.req);
-	}
-
-	//TODO: reset xconn->smb2.sent_bytes if queue is empty
-	// and > INT64_MAX?
-	// or always adjust when we acked anything...
-	return NT_STATUS_OK;
-}
-
 static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 {
 	int ret;
@@ -4001,11 +3960,6 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 	NTSTATUS status;
 
 	if (xconn->smb2.send_queue == NULL) {
-		status = smbd_smb2_check_ack_queue(xconn);
-		if (!NT_STATUS_IS_OK(status)) {
-			return status;
-		}
-
 		TEVENT_FD_NOT_WRITEABLE(xconn->transport.fde);
 		return NT_STATUS_OK;
 	}
@@ -4098,18 +4052,10 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 
 		if (e->ack.req != NULL) {
 			e->ack.last_byte = xconn->smb2.sent_bytes;
-			//DLIST_ADD_END(xconn->smb2.ack_queue, e);
-
 			continue;
 		}
 
 		talloc_free(e->mem_ctx);
-	}
-
-	/* not sure after rebase ... */
-	status = smbd_smb2_check_ack_queue(xconn);
-	if (!NT_STATUS_IS_OK(status)) {
-		return status;
 	}
 
 	/*
@@ -4184,11 +4130,6 @@ again:
 	}
 	if (err != 0) {
 		return map_nt_error_from_unix_common(err);
-	}
-
-	status = smbd_smb2_check_ack_queue(xconn);
-	if (!NT_STATUS_IS_OK(status)) {
-		return status;
 	}
 
 	if (ret < state->vector.iov_len) {
