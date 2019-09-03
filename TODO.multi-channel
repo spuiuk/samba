@@ -71,34 +71,19 @@ TODOs for multi-channel
   possibly at first without IPPROTO ... :
 
   - send oplock/lease break
-  - start timer
-  - remember current tcp sequence number
-  - disable timer if oplock/lease break reply comes in
-  - if timer expires:
-    check acknowledged tcp seq num vs remebered one
-    if remembered one is not acknowledged, consider
-    channel broken and resend break request on other channel
-
-  ===========================================
-
-  - remember sent and not acked oplock break requests
-    in a list (on the smbXsrv_connection or so)
-  - for each such request, start a timer when putting
-    it into the list
-  - develop an arithmetic and a mechanism using the SIOCOUTQ
-    ioctl (checked at every I/O on the interface)
-    to detect when a packet has really left the host.
-  - if the algo says that the packet has been sent,
-    disable timer and remove it from the list.
-    ==> really?
-        what about 'left the host' vs. 'ack has been received'?
-  - if oplock break reply arrives, disable timer and remove
-    pkt from list.
-  - if timer expires, consider channel broken and
-    resend break on other channel
-
-  ===========================================
-
+  - start main timer for OPLOCK_BREAK_TIMEOUT(30) seconds
+  - Save FileId for oplock breaks, LeaseKey for lease breaks in pending_breaks
+    list for client
+  - If connection has multiple channels, start a 5 second connection timer.
+    - If connection timer expires, lookup next available channel and resend
+      request over new channel.
+    - if no more channels available, cancel timer and await main timer timeout
+    - else resend break request and reset connection timer.
+  - if oplock/lease break reply comes in, compare FileId for oplock breaks,
+    LeaseKey for lease breaks in pending_breaks list for client. If exists,
+    wake up main request, remove from pending_list, disable timer and clean up
+    memory.
+  - if timer expires: return timeout. New create request allowed to proceed.
 
 - interface characteristics:
   --------------------------
