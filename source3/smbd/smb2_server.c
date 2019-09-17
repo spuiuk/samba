@@ -3314,6 +3314,50 @@ NTSTATUS smbd_smb2_request_error_ex(struct smbd_smb2_request *req,
 	return smbd_smb2_request_done_ex(req, status, body, info, __location__);
 }
 
+static bool smb_has_multiple_channels(struct smbXsrv_client *client)
+{
+	struct smbXsrv_connection *c = NULL;
+	struct smbXsrv_connection *cn = NULL;
+
+	c = DLIST_TAIL(client->connections);
+	cn = DLIST_PREV(c);
+
+	return (cn != c);
+}
+
+struct smbXsrv_connection *smb_get_latest_client_connection
+						(struct smbXsrv_client *client)
+{
+	return DLIST_TAIL(client->connections);
+}
+
+struct smbXsrv_connection
+	*smb_get_next_connection(struct smbXsrv_connection *main_channel,
+				 struct smbXsrv_connection *prev_channel)
+{
+	struct smbXsrv_client *client = main_channel->client;
+	struct smbXsrv_connection *ret;
+
+	if (prev_channel == NULL) {
+		ret = DLIST_TAIL(client->connections);
+		if (ret == main_channel) {
+			ret = DLIST_PREV(ret);
+		}
+		return ret;
+	}
+
+	/* We need to ensure that the previous connection is still available. */
+	for (ret = DLIST_TAIL(client->connections);
+			ret != NULL;
+			ret = DLIST_PREV(ret)) {
+		if (ret != prev_channel) {
+			continue;
+		}
+		ret = DLIST_PREV(ret);
+		return ret;
+	}
+	return NULL;
+}
 
 struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
