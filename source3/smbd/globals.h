@@ -662,6 +662,7 @@ struct smbd_smb2_send_queue {
 	NTSTATUS *sendfile_status;
 	struct iovec *vector;
 	int count;
+	struct tevent_req *req;
 
 	TALLOC_CTX *mem_ctx;
 };
