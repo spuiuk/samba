@@ -3889,6 +3889,12 @@ static NTSTATUS smbd_smb2_flush_send_queue(struct smbXsrv_connection *xconn)
 
 		xconn->smb2.send_queue_len--;
 		DLIST_REMOVE(xconn->smb2.send_queue, e);
+
+		/* Clean up in the call back */
+		if (e->req != NULL) {
+			continue;
+		}
+
 		talloc_free(e->mem_ctx);
 	}
 
