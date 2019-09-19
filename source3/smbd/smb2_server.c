@@ -3572,7 +3572,8 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     struct smbXsrv_open *op,
-				     uint8_t oplock_level)
+				     uint8_t oplock_level,
+				     bool need_ack)
 {
 	uint8_t body[0x18];
 
@@ -3585,17 +3586,22 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 
 	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body),
 				    false, /* Not lease */
-				    0);
+				    need_ack);
 }
 
 NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 				    uint16_t new_epoch,
-				    uint32_t lease_flags,
 				    struct smb2_lease_key *lease_key,
 				    uint32_t current_lease_state,
-				    uint32_t new_lease_state)
+				    uint32_t new_lease_state,
+				    bool need_ack)
 {
 	uint8_t body[0x2c];
+	uint32_t lease_flags = 0;
+
+	if (need_ack == true) {
+		lease_flags = SMB2_NOTIFY_BREAK_LEASE_FLAG_ACK_REQUIRED;
+	}
 
 	SSVAL(body, 0x00, sizeof(body));
 	SSVAL(body, 0x02, new_epoch);
@@ -3610,7 +3616,7 @@ NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 
 	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body),
 				    true, /* Is Lease */
-				    0);
+				    need_ack);
 }
 
 static bool is_smb2_recvfile_write(struct smbd_smb2_request_read_state *state)
