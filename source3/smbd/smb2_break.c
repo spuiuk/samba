@@ -505,12 +505,8 @@ void send_break_message_smb2(files_struct *fsp,
 		(unsigned int)break_to ));
 
 	if (fsp->oplock_type == LEASE_OPLOCK) {
-		uint32_t break_flags = 0;
 		uint16_t new_epoch;
-
-		if (fsp->lease->lease.lease_state != SMB2_LEASE_NONE) {
-			break_flags = SMB2_NOTIFY_BREAK_LEASE_FLAG_ACK_REQUIRED;
-		}
+		bool need_ack = (fsp->lease->lease.lease_state != SMB2_LEASE_NONE);
 
 		if (fsp->lease->lease.lease_version > 1) {
 			new_epoch = fsp->lease->lease.lease_epoch;
@@ -518,18 +514,23 @@ void send_break_message_smb2(files_struct *fsp,
 			new_epoch = 0;
 		}
 
-		status = smbd_smb2_send_lease_break(xconn, new_epoch, break_flags,
+		status = smbd_smb2_send_lease_break(xconn,
+						    new_epoch,
 						    &fsp->lease->lease.lease_key,
-						    break_from, break_to);
+						    break_from, break_to, need_ack);
 	} else {
 		uint8_t smb2_oplock_level;
+		bool need_ack = true;
+
+		if (break_from == SMB2_OPLOCK_LEVEL_II) {
+			need_ack = false;
+		}
+
 		smb2_oplock_level = (break_to & SMB2_LEASE_READ) ?
 			SMB2_OPLOCK_LEVEL_II : SMB2_OPLOCK_LEVEL_NONE;
-		status = smbd_smb2_send_oplock_break(xconn,
-						     session,
-						     fsp->conn->tcon,
-						     fsp->op,
-						     smb2_oplock_level);
+		status = smbd_smb2_send_oplock_break(xconn, session,
+						     fsp->conn->tcon, fsp->op,
+						     smb2_oplock_level, need_ack);
 	}
 	if (!NT_STATUS_IS_OK(status)) {
 		smbd_server_connection_terminate(xconn,

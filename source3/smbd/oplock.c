@@ -413,10 +413,10 @@ static void downgrade_lease_additional_trigger(struct tevent_context *ev,
 
 	status = smbd_smb2_send_lease_break(xconn,
 					    state->new_epoch,
-					    state->break_flags,
 					    &state->lease_key,
 					    state->break_from,
-					    state->break_to);
+					    state->break_to,
+					    (state->break_flags));
 	TALLOC_FREE(state);
 	if (!NT_STATUS_IS_OK(status)) {
 		smbd_server_connection_terminate(xconn,
