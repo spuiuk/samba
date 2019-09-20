@@ -3362,6 +3362,7 @@ struct smbXsrv_connection
 
 struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
+	struct smbXsrv_pending_breaks break_queue_entry;
 	TALLOC_CTX *mem_ctx;
 	struct tevent_context *ev_ctx;
 	struct smbXsrv_connection *xconn;
@@ -3536,8 +3537,8 @@ error:
 static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
-				     const uint8_t *body,
-				     size_t body_len)
+				     const uint8_t *body, size_t body_len,
+				     bool is_lease, bool ack_needed)
 {
 	NTSTATUS status;
 	struct smbd_smb2_send_break_state *state;
@@ -3547,6 +3548,22 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				       &state);
 	if (!NT_STATUS_IS_OK(status)) {
 		return status;
+	}
+
+	if (ack_needed) {
+		tevent_req_set_endtime(state->queue_entry.req,
+				state->ev_ctx,
+				timeval_current_ofs(OPLOCK_BREAK_TIMEOUT, 0));
+		/* Build smbXsrv_pending_breaks */
+		state->break_queue_entry.req = state->queue_entry.req;
+		/* FileId for oplock breaks, LeaseKey for lease breaks */
+		memcpy(&state->break_queue_entry.data[0], &body[0x8],
+		sizeof(uint64_t));
+		memcpy(&state->break_queue_entry.data[1], &body[0x10],
+		sizeof(uint64_t));
+		state->break_queue_entry.is_lease = is_lease;
+		DLIST_ADD_END(xconn->client->pending_breaks,
+			      &state->break_queue_entry);
 	}
 
 	tevent_req_set_callback(state->queue_entry.req, smbd_smb2_send_break_done,
@@ -3560,7 +3577,11 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		TALLOC_FREE(state);
 		return status;
 	}
-	tevent_wait_done(state->queue_entry.req);
+
+	/* No acks being received. */
+	if (!ack_needed) {
+		tevent_wait_done(state->queue_entry.req);
+	}
 
 	return NT_STATUS_OK;
 }
@@ -3581,6 +3602,10 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	TALLOC_FREE(ack_req);
 	xconn = state->xconn;
 
+	if (NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT)) {
+		DLIST_REMOVE(xconn->client->pending_breaks,
+				&state->break_queue_entry);
+	}
 	TALLOC_FREE(state);
 }
 
@@ -3599,7 +3624,9 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 	SBVAL(body, 0x08, op->global->open_persistent_id);
 	SBVAL(body, 0x10, op->global->open_volatile_id);
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body),
+				    false, /* Not lease */
+				    0);
 }
 
 NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
@@ -3622,7 +3649,9 @@ NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 	SIVAL(body, 0x24, 0);		/* AccessMaskHint, MUST be 0 */
 	SIVAL(body, 0x28, 0);		/* ShareMaskHint, MUST be 0 */
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body),
+				    true, /* Is Lease */
+				    0);
 }
 
 static bool is_smb2_recvfile_write(struct smbd_smb2_request_read_state *state)
