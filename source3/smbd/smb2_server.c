@@ -3315,11 +3315,49 @@ NTSTATUS smbd_smb2_request_error_ex(struct smbd_smb2_request *req,
 	return smbd_smb2_request_done_ex(req, status, body, info, __location__);
 }
 
+static bool smb_has_multiple_channels(struct smbXsrv_client *client)
+{
+	struct smbXsrv_connection *c = NULL;
+	struct smbXsrv_connection *cn = NULL;
+
+	c = DLIST_TAIL(client->connections);
+	cn = DLIST_PREV(c);
+
+	return (cn != c);
+}
 
 struct smbXsrv_connection *smb_get_latest_client_connection
 					(struct smbXsrv_client *client)
 {
 	return DLIST_TAIL(client->connections);
+}
+
+static struct smbXsrv_connection
+	*smb_get_next_connection(struct smbXsrv_connection *main_channel,
+				 struct smbXsrv_connection *prev_channel)
+{
+	struct smbXsrv_client *client = main_channel->client;
+	struct smbXsrv_connection *ret;
+
+	if (prev_channel == NULL) {
+		ret = DLIST_TAIL(client->connections);
+		if (ret == main_channel) {
+			ret = DLIST_PREV(ret);
+		}
+		return ret;
+	}
+
+	/* We need to ensure that the previous connection is still available. */
+	for (ret = DLIST_TAIL(client->connections);
+			ret != NULL;
+			ret = DLIST_PREV(ret)) {
+		if (ret != prev_channel) {
+			continue;
+		}
+		ret = DLIST_PREV(ret);
+		return ret;
+	}
+	return NULL;
 }
 
 struct smbd_smb2_send_break_state_payload {
@@ -3339,6 +3377,8 @@ struct smbd_smb2_send_break_state {
 	struct smbXsrv_connection *xconn;
 	struct smbXsrv_session *session;
 	struct smbXsrv_tcon *tcon;
+	struct smbXsrv_connection *prev_channel;
+	struct tevent_req *channel_retries;
 
 	struct smbd_smb2_send_break_state_payload payload;
 };
@@ -3448,6 +3488,7 @@ static NTSTATUS smbd_smb2_build_break_state_payload
 }
 
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req);
+static void smbd_smb2_send_channel_break_timeout(struct tevent_req *subreq);
 
 static NTSTATUS _smbd_smb2_send_break(TALLOC_CTX *mem_ctx,
 				      struct tevent_context *ev_ctx,
@@ -3483,6 +3524,7 @@ static NTSTATUS _smbd_smb2_send_break(TALLOC_CTX *mem_ctx,
 	state->mem_ctx = mem_ctx;
 	state->ev_ctx = ev_ctx;
 	state->xconn = xconn;
+	state->prev_channel = NULL;
 	state->session = session;
 	state->tcon = tcon;
 	state->queue_entry.mem_ctx = state->mem_ctx;
@@ -3519,6 +3561,19 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		return status;
 	}
 
+	if (smb_has_multiple_channels(xconn->client) && ack_needed) {
+		state->channel_retries = tevent_wakeup_send(state,
+						state->ev_ctx,
+						timeval_current_ofs(5, 0));
+		if (state->channel_retries == NULL) {
+			status = NT_STATUS_NO_MEMORY;
+			goto error;
+		}
+		tevent_req_set_callback(state->channel_retries,
+					smbd_smb2_send_channel_break_timeout,
+					state);
+	}
+
 	if (ack_needed) {
 		tevent_req_set_endtime(state->queue_entry.req,
 				state->ev_ctx,
@@ -3543,8 +3598,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 
 	status = smbd_smb2_flush_send_queue(xconn);
 	if (!NT_STATUS_IS_OK(status)) {
-		TALLOC_FREE(state);
-		return status;
+		goto error;
 	}
 
 	/* No acks being received. */
@@ -3553,6 +3607,75 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	return NT_STATUS_OK;
+error:
+	TALLOC_FREE(state);
+	return status;
+}
+
+static bool
+	smbd_smb2_send_channel_break(struct smbd_smb2_send_break_state *state)
+{
+	NTSTATUS status;
+	struct smbXsrv_connection *xconn;
+	struct smbd_smb2_send_break_state *newstate;
+
+	xconn = smb_get_next_connection(state->xconn, state->prev_channel);
+	if (xconn == NULL) {
+		DEBUG(0, ("No more connections to retry\n"));
+		return false;
+	}
+	state->prev_channel = xconn;
+
+	status = _smbd_smb2_send_break(state->mem_ctx, state->ev_ctx,
+				       xconn, state->session,
+				       state->tcon,
+				       (const uint8_t *)&state->payload.body,
+				       state->payload.body_len,
+				       &newstate);
+	if (!NT_STATUS_IS_OK(status)) {
+		return false;
+	}
+
+	DLIST_ADD_END(xconn->smb2.send_queue, &newstate->queue_entry);
+	xconn->smb2.send_queue_len++;
+
+	smbd_smb2_flush_send_queue(xconn);
+
+	/* We await for acks on main channel only. */
+	tevent_req_post(newstate->queue_entry.req, newstate->ev_ctx);
+	TALLOC_FREE(newstate);
+
+	return true;
+}
+
+static void smbd_smb2_send_channel_break_timeout(struct tevent_req *subreq)
+{
+	struct smbd_smb2_send_break_state *state =
+		tevent_req_callback_data(subreq,
+					 struct smbd_smb2_send_break_state);
+	bool ok;
+
+	ok = tevent_wakeup_recv(subreq);
+	TALLOC_FREE(subreq);
+	if (!ok) {
+		return;
+	}
+
+	if (smbd_smb2_send_channel_break(state)) {
+		state->channel_retries = tevent_wakeup_send(state,
+						state->ev_ctx,
+						timeval_current_ofs(5, 0));
+		if (state->channel_retries == NULL) {
+			return;
+		}
+		tevent_req_set_callback(state->channel_retries,
+					smbd_smb2_send_channel_break_timeout,
+					state);
+	} else {
+		state->channel_retries = NULL;
+	}
+
+	return;
 }
 
 static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
@@ -3567,6 +3690,14 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 	tevent_req_is_nterror(ack_req, &status);
 	TALLOC_FREE(ack_req);
 	xconn = state->xconn;
+
+	if (state->channel_retries != NULL) {
+		/*
+		 * Sending an error other than timeout will end channel
+		 * break callback.
+		 */
+		tevent_wait_done(state->channel_retries);
+	}
 
 	if (NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT)) {
 		DLIST_REMOVE(xconn->client->pending_breaks,
