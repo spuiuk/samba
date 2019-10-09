@@ -448,12 +448,7 @@ void send_break_message_smb2(files_struct *fsp,
 	struct timeval tv = timeval_current();
 	NTTIME now = timeval_to_nttime(&tv);
 
-	/*
-	 * TODO: in future we should have a better algorithm
-	 * to find the correct connection for a break message.
-	 * Then we also need some retries if a channel gets disconnected.
-	 */
-	xconn = fsp->conn->sconn->client->connections;
+	xconn = smb_get_latest_client_connection(fsp->conn->sconn->client);
 
 	status = smb2srv_session_lookup_conn(xconn,
 					     fsp->vuid,
