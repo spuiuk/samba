@@ -3315,6 +3315,12 @@ NTSTATUS smbd_smb2_request_error_ex(struct smbd_smb2_request *req,
 }
 
 
+struct smbXsrv_connection *smb_get_latest_client_connection
+					(struct smbXsrv_client *client)
+{
+	return DLIST_TAIL(client->connections);
+}
+
 struct smbd_smb2_send_break_state {
 	struct smbd_smb2_send_queue queue_entry;
 	uint8_t nbt_hdr[NBT_HDR_SIZE];
