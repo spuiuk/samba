@@ -3569,7 +3569,7 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	if (smb_has_multiple_channels(xconn->client) && ack_needed) {
 		state->channel_retries = tevent_wakeup_send(state,
 						state->ev_ctx,
-						timeval_current_ofs(5, 0));
+						timeval_current_ofs(10, 0));
 		if (state->channel_retries == NULL) {
 			status = NT_STATUS_NO_MEMORY;
 			goto error;
@@ -3669,7 +3669,7 @@ static void smbd_smb2_send_channel_break_timeout(struct tevent_req *subreq)
 	if (smbd_smb2_send_channel_break(state)) {
 		state->channel_retries = tevent_wakeup_send(state,
 						state->ev_ctx,
-						timeval_current_ofs(5, 0));
+						timeval_current_ofs(2, 0));
 		if (state->channel_retries == NULL) {
 			return;
 		}
