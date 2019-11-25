@@ -3536,7 +3536,7 @@ static NTSTATUS _smbd_smb2_send_break(TALLOC_CTX *mem_ctx,
 	state->queue_entry.vector = (struct iovec *) &state->payload.vector;
 	state->queue_entry.count = ARRAY_SIZE(state->payload.vector);
 
-	state->queue_entry.req = tevent_wait_send(mem_ctx, ev_ctx);
+	state->queue_entry.req = tevent_wait_send(client, ev_ctx);
 	if (state->queue_entry.req == NULL) {
 		status = NT_STATUS_NO_MEMORY;
 		goto error;
