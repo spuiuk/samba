@@ -3691,8 +3691,8 @@ static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
 
 	state = tevent_req_callback_data(ack_req,
 					 struct smbd_smb2_send_break_state);
-	tevent_wait_recv(ack_req);
 	tevent_req_is_nterror(ack_req, &status);
+	tevent_wait_recv(ack_req);
 	TALLOC_FREE(ack_req);
 	xconn = state->xconn;
 
