@@ -270,6 +270,7 @@ static void lease_timeout_handler(struct tevent_context *ctx,
 	struct files_struct *fsp;
 	struct share_mode_lock *lck;
 	uint16_t old_epoch = lease->lease.lease_epoch;
+	struct smbXsrv_connection *xconn;
 
 	fsp = file_find_one_fsp_from_lease_key(lease->sconn,
 					       &lease->lease.lease_key);
@@ -319,6 +320,11 @@ static void lease_timeout_handler(struct tevent_context *ctx,
 
 	DEBUG(1, ("lease break timed out for file %s -- replying anyway\n",
 		  fsp_str_dbg(fsp)));
+
+	xconn = smb_get_latest_client_connection(fsp->conn->sconn->client);
+	smbd_smb2_request_break_done(xconn,
+				     lease->lease.lease_key.data[0],
+				     lease->lease.lease_key.data[1], 1);
 	(void)downgrade_lease(lease->sconn->client->connections,
 			1,
 			&fsp->file_id,
@@ -794,6 +800,7 @@ static void oplock_timeout_handler(struct tevent_context *ctx,
 				   void *private_data)
 {
 	files_struct *fsp = (files_struct *)private_data;
+	struct smbXsrv_connection *xconn;
 
 	SMB_ASSERT(fsp->sent_oplock_break != NO_BREAK_SENT);
 
@@ -801,6 +808,10 @@ static void oplock_timeout_handler(struct tevent_context *ctx,
 	TALLOC_FREE(fsp->oplock_timeout);
 	DEBUG(0, ("Oplock break failed for file %s -- replying anyway\n",
 		  fsp_str_dbg(fsp)));
+	xconn = smb_get_latest_client_connection(fsp->conn->sconn->client);
+	smbd_smb2_request_break_done(xconn,
+				     fsp->op->global->open_persistent_id,
+				     fsp->op->global->open_volatile_id, 0);
 	remove_oplock(fsp);
 }
 
