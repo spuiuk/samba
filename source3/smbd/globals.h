@@ -909,4 +909,7 @@ void smbd_init_globals(void);
 
 struct smbXsrv_connection *smb_get_latest_client_connection
 					(struct smbXsrv_client *);
+void smbd_smb2_request_break_done(struct smbXsrv_connection *xconn,
+				  uint64_t data0, uint64_t data1,
+				  int is_lease);
 #endif /* _SOURCE3_SMBD_GLOBALS_H_ */

@@ -42,8 +42,7 @@ static NTSTATUS smbd_smb2_oplock_break_recv(struct tevent_req *req,
 					    uint8_t *out_oplock_level);
 
 static void smbd_smb2_request_oplock_break_done(struct tevent_req *subreq);
-static void smbd_smb2_request_break_done(struct smbXsrv_connection *xconn, uint64_t data0,
-					 uint64_t data1, int is_lease);
+
 NTSTATUS smbd_smb2_request_process_break(struct smbd_smb2_request *req)
 {
 	NTSTATUS status;
@@ -102,9 +101,9 @@ NTSTATUS smbd_smb2_request_process_break(struct smbd_smb2_request *req)
 	return smbd_smb2_request_pending_queue(req, subreq, 500);
 }
 
-static void smbd_smb2_request_break_done(struct smbXsrv_connection *xconn,
-					 uint64_t data0, uint64_t data1,
-					 int is_lease)
+void smbd_smb2_request_break_done(struct smbXsrv_connection *xconn,
+				  uint64_t data0, uint64_t data1,
+				  int is_lease)
 {
 	struct smbXsrv_pending_breaks *cur = NULL;
 	struct smbXsrv_pending_breaks *next = NULL;
