@@ -3580,9 +3580,6 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 	}
 
 	if (ack_needed) {
-		tevent_req_set_endtime(state->queue_entry.req,
-				state->ev_ctx,
-				timeval_current_ofs(OPLOCK_BREAK_TIMEOUT, 0));
 		/* Build smbXsrv_pending_breaks */
 		state->break_queue_entry.req = state->queue_entry.req;
 		/* FileId for oplock breaks, LeaseKey for lease breaks */
