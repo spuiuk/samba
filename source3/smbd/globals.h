@@ -344,7 +344,9 @@ struct smbXsrv_pending_breaks {
 	struct smbXsrv_pending_breaks *prev, *next;
 	bool is_lease;
 	uint64_t data[2];
+	struct smbXsrv_connection *xconn;
 	struct tevent_req *req;
+	struct tevent_req *channel_retries;
 };
 
 struct smbXsrv_connection {
@@ -912,4 +914,6 @@ struct smbXsrv_connection *smb_get_latest_client_connection
 void smbd_smb2_request_break_done(struct smbXsrv_connection *xconn,
 				  uint64_t data0, uint64_t data1,
 				  int is_lease);
+
+void smbd_smb2_request_break_cancel_xconn(struct smbXsrv_connection *xconn);
 #endif /* _SOURCE3_SMBD_GLOBALS_H_ */

@@ -1119,6 +1119,7 @@ void smbd_server_connection_terminate_ex(struct smbXsrv_connection *xconn,
 	if (client->connections->next != NULL) {
 		/* TODO: cancel pending requests */
 		DLIST_REMOVE(client->connections, xconn);
+		smbd_smb2_request_break_cancel_xconn(xconn);
 		TALLOC_FREE(xconn);
 		DO_PROFILE_INC(disconnect);
 		return;
@@ -3577,6 +3578,9 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 		tevent_req_set_callback(state->channel_retries,
 					smbd_smb2_send_channel_break_timeout,
 					state);
+		state->break_queue_entry.xconn = xconn;
+		state->break_queue_entry.channel_retries =
+						state->channel_retries;
 	}
 
 	if (ack_needed) {
@@ -3656,6 +3660,10 @@ static void smbd_smb2_send_channel_break_timeout(struct tevent_req *subreq)
 		tevent_req_callback_data(subreq,
 					 struct smbd_smb2_send_break_state);
 	bool ok;
+
+	if (state->break_queue_entry.channel_retries != NULL) {
+		state->break_queue_entry.channel_retries = NULL;
+	}
 
 	ok = tevent_wakeup_recv(subreq);
 	TALLOC_FREE(subreq);

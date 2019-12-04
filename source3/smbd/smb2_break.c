@@ -117,7 +117,24 @@ void smbd_smb2_request_break_done(struct smbXsrv_connection *xconn,
 			DLIST_REMOVE(xconn->client->pending_breaks, cur);
 			tevent_wait_done(cur->req);
 		}
+	}
 
+	return;
+}
+
+void smbd_smb2_request_break_cancel_xconn(struct smbXsrv_connection *xconn)
+{
+	struct smbXsrv_pending_breaks *cur = NULL;
+	struct smbXsrv_pending_breaks *next = NULL;
+
+	for (cur = xconn->client->pending_breaks; cur != NULL; cur = next) {
+		next = cur->next;
+
+		if (cur->xconn == xconn && cur->channel_retries != NULL) {
+			tevent_req_set_endtime(cur->channel_retries,
+					       xconn->client->raw_ev_ctx,
+					       timeval_current_ofs(0, 0));
+		}
 	}
 
 	return;
