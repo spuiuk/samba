@@ -140,6 +140,8 @@ interface smbXsrv
 		 * one in future.
 		 */
 		[ignore] struct smbXsrv_connection	*connections;
+		/* List of oplock breaks awaiting a response from clients */
+		[ignore] struct smbXsrv_pending_breaks  *pending_breaks;
 		boolean8		server_multi_channel_enabled;
 		hyper			next_channel_id;
 	} smbXsrv_client;

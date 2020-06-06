@@ -3484,12 +3484,61 @@ NTSTATUS smbd_smb2_request_error_ex(struct smbd_smb2_request *req,
 	return smbd_smb2_request_done_ex(req, status, body, info, __location__);
 }
 
+static bool smb_has_multiple_channels(struct smbXsrv_client *client)
+{
+	struct smbXsrv_connection *c = NULL;
+	struct smbXsrv_connection *cn = NULL;
+
+	c = DLIST_TAIL(client->connections);
+	cn = DLIST_PREV(c);
+
+	return (cn != c);
+}
 
 struct smbXsrv_connection *smb_get_latest_client_connection
 					(struct smbXsrv_client *client)
 {
 	return DLIST_TAIL(client->connections);
 }
+
+static struct smbXsrv_connection
+	*smb_get_next_connection(struct smbXsrv_connection *main_channel,
+				 struct smbXsrv_connection *prev_channel)
+{
+	struct smbXsrv_client *client = main_channel->client;
+	struct smbXsrv_connection *ret;
+
+	if (prev_channel == NULL) {
+		ret = DLIST_TAIL(client->connections);
+		if (ret == main_channel) {
+			ret = DLIST_PREV(ret);
+		}
+		return ret;
+	}
+
+	/* We need to ensure that the previous connection is still available. */
+	for (ret = DLIST_TAIL(client->connections); ret != NULL;
+							ret = DLIST_PREV(ret)) {
+		if (ret != prev_channel) {
+			continue;
+		}
+		ret = DLIST_PREV(ret);
+		return ret;
+	}
+	return NULL;
+}
+
+struct smbd_smb2_send_break_state {
+	TALLOC_CTX *mem_ctx;
+	struct tevent_context *ev_ctx;
+	struct smbXsrv_connection *xconn;
+	struct smbXsrv_session *session;
+	struct smbXsrv_tcon *tcon;
+	struct smbXsrv_connection *previous_channel;
+	struct smbXsrv_pending_breaks break_queue_entry;
+	size_t bodylen;
+	uint8_t body[1];
+};
 
 struct smbd_smb2_send_break_payload {
 	struct smbd_smb2_send_queue queue_entry;
@@ -3627,20 +3676,131 @@ static NTSTATUS smbd_smb2_send_break_payload
 	return NT_STATUS_OK;
 }
 
+
+static void smbd_smb2_send_break_done(struct tevent_req *ack_req);
 static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
-				     const uint8_t *body,
-				     size_t body_len)
+				     const uint8_t *body, size_t body_len,
+				     bool is_lease)
 {
+	struct smbXsrv_client *client = xconn->client;
 	NTSTATUS status;
+	struct smbd_smb2_send_break_state *state=NULL;
+	size_t statelen;
 
-	status = smbd_smb2_send_break_payload(xconn, session, tcon, body, body_len);
+	if (smb_has_multiple_channels(client)) {
+		struct tevent_req *req;
+
+		statelen = offsetof(struct smbd_smb2_send_break_state, body)
+			   + body_len;
+		state = talloc_zero_size(client, statelen);
+		if (state == NULL) {
+			status = NT_STATUS_NO_MEMORY;
+			goto error;
+		}
+		talloc_set_name_const(state,
+				"struct smbd_smb2_send_break_state");
+
+		state->mem_ctx = client;
+		state->ev_ctx = xconn->client->raw_ev_ctx;
+		state->xconn = xconn;
+		state->session = session;
+		state->tcon = tcon;
+		state->bodylen = body_len;
+		memcpy(state->body, body, body_len);
+
+		/* Set first retry timeout to 10 seconds */
+		req = tevent_wakeup_send(state->mem_ctx, state->ev_ctx,
+					 timeval_current_ofs(10, 0));
+		if (req == NULL) {
+			status = NT_STATUS_NO_MEMORY;
+			goto error;
+		}
+		tevent_req_set_callback(req, smbd_smb2_send_break_done, state);
+
+		/* Build smbXsrv_pending_breaks */
+		state->break_queue_entry.req = req;
+		/* FileId for oplock breaks, LeaseKey for lease breaks */
+		memcpy(&state->break_queue_entry.data[0], &body[0x8],
+		       sizeof(uint64_t));
+		memcpy(&state->break_queue_entry.data[1], &body[0x10],
+		       sizeof(uint64_t));
+		state->break_queue_entry.is_lease = is_lease;
+		DLIST_ADD_END(xconn->client->pending_breaks,
+				&state->break_queue_entry);
+	}
+
+	status = smbd_smb2_send_break_payload(xconn, session, tcon, body,
+					      body_len);
 	if (!NT_STATUS_IS_OK(status)) {
-		return status;
+		goto error;
 	}
 
 	return NT_STATUS_OK;
+error:
+	TALLOC_FREE(state);
+	return status;
+}
+
+static bool
+	smbd_smb2_send_channel_break(struct smbd_smb2_send_break_state *state)
+{
+	NTSTATUS status;
+	struct smbXsrv_connection *xconn;
+
+	xconn = smb_get_next_connection(state->xconn, state->previous_channel);
+	if (xconn == NULL) {
+		DEBUG(0, ("No more connections to retry\n"));
+		return false;
+	}
+	state->previous_channel = xconn;
+
+	status = smbd_smb2_send_break_payload(xconn,
+					      state->session,
+					      state->tcon,
+					      state->body,
+					      state->bodylen);
+	if (!NT_STATUS_IS_OK(status)) {
+		return false;
+	}
+
+	return true;
+  }
+
+
+static void smbd_smb2_send_break_done(struct tevent_req *ack_req)
+{
+	NTSTATUS status;
+	struct smbd_smb2_send_break_state *state;
+
+	state = tevent_req_callback_data(ack_req,
+					 struct smbd_smb2_send_break_state);
+	tevent_req_is_nterror(ack_req, &status);
+	tevent_wakeup_recv(ack_req);
+	TALLOC_FREE(ack_req);
+
+	state->break_queue_entry.req = NULL;
+
+	if (NT_STATUS_EQUAL(status, NT_STATUS_IO_TIMEOUT) &&
+	    smbd_smb2_send_channel_break(state)) {
+		struct tevent_req *req;
+
+		/* Set channel retry timeout interval to 2 second */
+		req = tevent_wakeup_send(state->mem_ctx, state->ev_ctx,
+					 timeval_current_ofs(2,0));
+		if (req == NULL) {
+			goto error;
+		}
+		tevent_req_set_callback(req, smbd_smb2_send_break_done, state);
+
+		state->break_queue_entry.req = req;
+		return;
+	}
+error:
+	DLIST_REMOVE(state->xconn->client->pending_breaks,
+		     &state->break_queue_entry);
+	TALLOC_FREE(state);
 }
 
 NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
@@ -3658,7 +3818,7 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 	SBVAL(body, 0x08, op->global->open_persistent_id);
 	SBVAL(body, 0x10, op->global->open_volatile_id);
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body), false);
 }
 
 NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
@@ -3681,7 +3841,7 @@ NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 	SIVAL(body, 0x24, 0);		/* AccessMaskHint, MUST be 0 */
 	SIVAL(body, 0x28, 0);		/* ShareMaskHint, MUST be 0 */
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body));
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body), true);
 }
 
 static bool is_smb2_recvfile_write(struct smbd_smb2_request_read_state *state)

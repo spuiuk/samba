@@ -41,6 +41,27 @@ static NTSTATUS smbd_smb2_oplock_break_recv(struct tevent_req *req,
 					    uint8_t *out_oplock_level);
 
 static void smbd_smb2_request_oplock_break_done(struct tevent_req *subreq);
+
+static void smbd_smb2_request_break_done(struct smbXsrv_connection *xconn,
+					 uint64_t data0, uint64_t data1,
+					 int is_lease)
+{
+	struct smbXsrv_pending_breaks *cur = NULL;
+	struct smbXsrv_pending_breaks *next = NULL;
+
+	for (cur = xconn->client->pending_breaks; cur != NULL; cur = next) {
+		next = cur->next;
+
+		if ((cur->is_lease == is_lease) &&
+		    (cur->data[0] == data0) &&
+		    (cur->data[1] == data1)) {
+			tevent_req_done(cur->req);
+		}
+	}
+
+	return;
+}
+
 NTSTATUS smbd_smb2_request_process_break(struct smbd_smb2_request *req)
 {
 	NTSTATUS status;
@@ -80,6 +101,10 @@ NTSTATUS smbd_smb2_request_process_break(struct smbd_smb2_request *req)
 		return smbd_smb2_request_error(
 			req, NT_STATUS_INVALID_OPLOCK_PROTOCOL);
 	}
+
+	smbd_smb2_request_break_done(req->xconn,
+				     in_file_id_persistent, in_file_id_volatile,
+				     0);
 
 	if (in_oplock_level != SMB2_OPLOCK_LEVEL_NONE &&
 	    in_oplock_level != SMB2_OPLOCK_LEVEL_II) {
@@ -264,6 +289,9 @@ static NTSTATUS smbd_smb2_request_process_lease_break(
 	in_lease_key.data[0] = BVAL(inbody, 8);
 	in_lease_key.data[1] = BVAL(inbody, 16);
 	in_lease_state = IVAL(inbody, 24);
+
+	smbd_smb2_request_break_done(req->xconn, in_lease_key.data[0],
+				     in_lease_key.data[1], 1);
 
 	subreq = smbd_smb2_lease_break_send(req, req->sconn->ev_ctx, req,
 					    in_lease_key, in_lease_state);
