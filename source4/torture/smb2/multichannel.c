@@ -1547,7 +1547,7 @@ static bool test4_lease_break_handler(struct smb2_transport *transport,
 	lease_break_info.lease_break = *lb;
 	lease_break_info.count++;
 
-	torture_comment(tctx, "Test 6 Lease break handler called.\n");
+	torture_comment(tctx, "Test 4 Lease break handler called.\n");
 	torture_comment(tctx, "Trying write to file using given session.\n");
 
 	blob = data_blob_string_const("Here I am");
@@ -1570,12 +1570,12 @@ done:
  * then retry the lease break?
  *      Connect 2A, 2B
  *      open file1 in session 2A
- *      set lease handler for 2A to ignore break requests
+ *      set lease handler for 2B to ignore break requests
  *      open file1 in session 1
- *           Lease break sent to 2A
- *           Write to file in 2A
+ *           Lease break sent to 2B
+ * 			 Write to file in 2B
  *           Do not send ack to lease break
- *      Check to see if second lease break sent
+ *      Check to see if second lease break(retry) sent to 2A
  *      Cleanup
  */
 static bool test_multichannel_lease_break_test4(struct torture_context *tctx,
@@ -1599,7 +1599,7 @@ static bool test_multichannel_lease_break_test4(struct torture_context *tctx,
 	struct smb2_tree *tree2B = NULL;
 	struct smb2_tree *tree2C = NULL;
 	struct smb2_transport *transport1 = tree1->session->transport;
-	struct smb2_transport *transport2A = NULL;
+	struct smb2_transport *transport2B = NULL;
 	struct smbcli_options transport2_options;
 	struct smb2_session *session1 = tree1->session;
 	uint16_t local_port = 0;
@@ -1655,7 +1655,7 @@ static bool test_multichannel_lease_break_test4(struct torture_context *tctx,
 						  &transport2_options,
 						  &tree2A, &tree2B, NULL);
 	torture_assert(tctx, ret, "Could not create channels.\n");
-	transport2A = tree2A->session->transport;
+	transport2B = tree2B->session->transport;
 
 	torture_comment(tctx, "client2 opens fname1 via session 2A\n");
 	smb2_lease_create(&io1, &ls1, false, fname1, LEASE2F1,
@@ -1670,13 +1670,13 @@ static bool test_multichannel_lease_break_test4(struct torture_context *tctx,
 	CHECK_VAL(io1.out.durable_open, false);
 	CHECK_VAL(lease_break_info.count, 0);
 
-	torture_comment(tctx, "Blocking 2A\n");
-	/* Set our lease handler for 2A */
+	torture_comment(tctx, "Blocking 2B\n");
+	/* Set our lease handler for 2B */
 	lease_break_info.oplock_handle = h_client2_file1;
-	transport2A->lease.handler = test4_lease_break_handler;
+	transport2B->lease.handler = test4_lease_break_handler;
 
 	torture_comment(tctx,
-			"Client opens fname1 with session 1 with 2A blocked\n");
+			"Client opens fname1 with session 1 with 2B blocked\n");
 	smb2_lease_create(&io1, &ls1, false, fname1, LEASE1F1,
 			  smb2_util_lease_state("RHW"));
 	status = smb2_create(tree1, mem_ctx, &io1);
