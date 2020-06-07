@@ -3682,14 +3682,14 @@ static NTSTATUS smbd_smb2_send_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     const uint8_t *body, size_t body_len,
-				     bool is_lease)
+				     bool is_lease, bool ack_needed)
 {
 	struct smbXsrv_client *client = xconn->client;
 	NTSTATUS status;
 	struct smbd_smb2_send_break_state *state=NULL;
 	size_t statelen;
 
-	if (smb_has_multiple_channels(client)) {
+	if (ack_needed && smb_has_multiple_channels(client)) {
 		struct tevent_req *req;
 
 		statelen = offsetof(struct smbd_smb2_send_break_state, body)
@@ -3807,7 +3807,8 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 				     struct smbXsrv_session *session,
 				     struct smbXsrv_tcon *tcon,
 				     struct smbXsrv_open *op,
-				     uint8_t oplock_level)
+				     uint8_t oplock_level,
+				     bool need_ack)
 {
 	uint8_t body[0x18];
 
@@ -3818,17 +3819,24 @@ NTSTATUS smbd_smb2_send_oplock_break(struct smbXsrv_connection *xconn,
 	SBVAL(body, 0x08, op->global->open_persistent_id);
 	SBVAL(body, 0x10, op->global->open_volatile_id);
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body), false);
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body),
+							false, /* Not Lease */
+							need_ack);
 }
 
 NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 				    uint16_t new_epoch,
-				    uint32_t lease_flags,
 				    struct smb2_lease_key *lease_key,
 				    uint32_t current_lease_state,
-				    uint32_t new_lease_state)
+				    uint32_t new_lease_state,
+				    bool need_ack)
 {
 	uint8_t body[0x2c];
+	uint32_t lease_flags = 0;
+
+	if (need_ack == true) {
+		lease_flags = SMB2_NOTIFY_BREAK_LEASE_FLAG_ACK_REQUIRED;
+	}
 
 	SSVAL(body, 0x00, sizeof(body));
 	SSVAL(body, 0x02, new_epoch);
@@ -3841,7 +3849,9 @@ NTSTATUS smbd_smb2_send_lease_break(struct smbXsrv_connection *xconn,
 	SIVAL(body, 0x24, 0);		/* AccessMaskHint, MUST be 0 */
 	SIVAL(body, 0x28, 0);		/* ShareMaskHint, MUST be 0 */
 
-	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body), true);
+	return smbd_smb2_send_break(xconn, NULL, NULL, body, sizeof(body),
+							true, /* Is Lease */
+							need_ack);
 }
 
 static bool is_smb2_recvfile_write(struct smbd_smb2_request_read_state *state)
